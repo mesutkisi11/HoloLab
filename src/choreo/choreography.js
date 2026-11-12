@@ -6,6 +6,11 @@ const SEATED = 0.999;
 
 // Koreografi motoru: tek bir "progress" (0 sökülmüş, 1 birleşmiş) değerini
 // tüm parçaların konumuna çevirir. İleri-geri serbestçe değişebilir.
+//
+// Her adımda ek durumlar:
+//   offset  : -1 ise parça "sökülmüş" sayılır (elle çıkarılıp bırakıldı), global ilerleme onu getirmez
+//   float   : parça havada asılı (fırlatıldı), sabit yerel poz
+//   locked  : parça şu an elle tutuluyor / kendi animasyonunu oynatıyor, motor dokunmaz
 export function createChoreography(parts, data) {
   const byId = new Map(parts.map((p) => [p.userData.part.id, p]));
 
@@ -19,9 +24,18 @@ export function createChoreography(parts, data) {
         console.warn(`Koreografi: parça bulunamadı: ${id}`);
         continue;
       }
-      steps.push({ ...prepareStep(raw, part), s: 0, prevS: 0, seatedAt: -1, shakeAxis: null });
+      steps.push({
+        ...prepareStep(raw, part),
+        s: 0,
+        prevS: 0,
+        seatedAt: -1,
+        offset: 0,
+        float: null,
+        locked: false,
+      });
     }
   }
+  const stepById = new Map(steps.map((st) => [st.id, st]));
 
   const duration = Math.max(0.001, ...steps.map((st) => st.startTime + st.duration));
   const listeners = new Map();
@@ -42,8 +56,16 @@ export function createChoreography(parts, data) {
 
     for (const step of steps) {
       step.prevS = step.s;
-      step.s = clamp01((t - step.startTime) / step.duration);
+      step.s = clamp01((t - step.startTime) / step.duration + step.offset);
       if (step.s < SEATED) allSeated = false;
+
+      if (step.locked) continue;
+
+      if (step.float) {
+        step.part.position.copy(step.float.position);
+        step.part.quaternion.copy(step.float.quaternion);
+        continue;
+      }
 
       evalStep(step, step.s, scratch);
       step.part.position.copy(scratch.position);
@@ -58,15 +80,7 @@ export function createChoreography(parts, data) {
       }
       if (step.prevS <= 0.001 && step.s > 0.001) emit('start', step);
 
-      // Oturma anında kısa sarsıntı ve parlama
-      const age = now - step.seatedAt;
-      if (step.seatedAt >= 0 && age < 0.3) {
-        const shake = 0.006 * Math.exp(-age * 14) * Math.sin(age * 90);
-        step.part.position.addScaledVector(step.axis, shake);
-        step.part.userData.part.material.uniforms.uFlash.value = Math.exp(-age * 9);
-      } else {
-        step.part.userData.part.material.uniforms.uFlash.value = 0;
-      }
+      applySettle(step);
     }
 
     if (allSeated && !completed) {
@@ -74,6 +88,19 @@ export function createChoreography(parts, data) {
       emit('complete');
     } else if (!allSeated && progress < 0.98) {
       completed = false;
+    }
+  }
+
+  // Oturma anında kısa sarsıntı ve parlama
+  function applySettle(step) {
+    const age = now - step.seatedAt;
+    const mat = step.part.userData.part.material.uniforms.uFlash;
+    if (step.seatedAt >= 0 && age < 0.3) {
+      const shake = 0.006 * Math.exp(-age * 14) * Math.sin(age * 90);
+      step.part.position.addScaledVector(step.axis, shake);
+      mat.value = Math.exp(-age * 9);
+    } else {
+      mat.value = 0;
     }
   }
 
@@ -85,11 +112,32 @@ export function createChoreography(parts, data) {
       progress = clamp01(p);
     },
     getProgress: () => progress,
+    getStep: (id) => stepById.get(id),
     // Parça şu an hareket ediyor mu? (vurgu rengi için)
     isMoving(partId) {
-      const st = steps.find((s) => s.id === partId);
-      return !!st && st.s > 0.001 && st.s < SEATED;
+      const st = stepById.get(partId);
+      return !!st && (st.locked || (st.s > 0.001 && st.s < SEATED));
     },
+    // Parçayı "oturdu" olarak işaretle (elle yerine takıldı)
+    markSeated(id) {
+      const st = stepById.get(id);
+      if (!st) return;
+      st.offset = 0;
+      st.float = null;
+      st.locked = false;
+      st.seatedAt = now;
+      st.s = 1;
+      emit('seated', st);
+    },
+    // Tüm elle yapılan değişiklikleri sıfırla (tam montaj öncesi)
+    clearOverrides() {
+      for (const st of steps) {
+        st.offset = 0;
+        st.float = null;
+        st.locked = false;
+      }
+    },
+    hasOverrides: () => steps.some((st) => st.offset !== 0 || st.float),
     on(name, fn) {
       if (!listeners.has(name)) listeners.set(name, new Set());
       listeners.get(name).add(fn);
@@ -98,7 +146,7 @@ export function createChoreography(parts, data) {
     // Adım adım gezinme için: her adımın bittiği progress değerleri (sıralı, tekil)
     seatPoints() {
       const pts = steps.map((st) => (st.startTime + st.duration) / duration);
-      return [...new Set(pts.map((p) => Math.round(p * 1000) / 1000))].sort((a, b) => a - b);
+      return [0, ...new Set(pts.map((p) => Math.round(p * 1000) / 1000))].sort((a, b) => a - b);
     },
   };
 }

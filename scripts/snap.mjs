@@ -2,7 +2,8 @@
 // Kullanım: node scripts/snap.mjs <çıktı.png> [url] [bekleme ms] [tuşlar: "e,space"]
 import { chromium } from 'playwright-core';
 
-const [out = 'snap.png', url = 'http://localhost:5173/', waitMs = '4000', keys = ''] = process.argv.slice(2);
+const [out = 'snap.png', url = 'http://localhost:5173/', waitMs = '4000', keys = '', drag = ''] =
+  process.argv.slice(2);
 
 const browser = await chromium.launch({
   channel: 'chrome',
@@ -28,6 +29,20 @@ await page.waitForTimeout(Number(waitMs));
 for (const key of keys.split(',').filter(Boolean)) {
   await page.keyboard.press(key === 'space' ? 'Space' : key);
   await page.waitForTimeout(400);
+}
+// drag: "x1,y1,x2,y2" fare ile sürükleme (parça çekme testi)
+if (drag) {
+  const [x1, y1, x2, y2] = drag.split(',').map(Number);
+  await page.mouse.move(x1, y1);
+  await page.mouse.down();
+  for (let i = 1; i <= 20; i++) {
+    await page.mouse.move(x1 + ((x2 - x1) * i) / 20, y1 + ((y2 - y1) * i) / 20);
+    await page.waitForTimeout(30);
+  }
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: out.replace('.png', '-drag.png') });
+  await page.mouse.up();
+  await page.waitForTimeout(900);
 }
 await page.screenshot({ path: out });
 console.log(logs.length ? logs.join('\n') : 'no console errors');

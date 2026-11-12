@@ -66,8 +66,13 @@ export function createHandState() {
       // Pinch: başparmak ucu ile işaret parmağı ucu arasındaki mesafe (el boyuna göre)
       const pinchDist = dist(pts[TIP.thumb], pts[TIP.index]) / Math.max(size, 1e-3);
       // Histerezis: başlaması için 0.35 altına, bitmesi için 0.5 üstüne çıkması gerekir
-      slot.pinching = slot.pinching ? pinchDist < 0.5 : pinchDist < 0.35;
+      slot.pinching = slot.pinching ? pinchDist < 0.45 : pinchDist < 0.28;
       slot.fist = slot.fist ? extended <= 1 : extended === 0;
+
+      // Parmak yelpazesi: dört parmak ucunun kendi merkezlerinden ortalama uzaklığı (el boyuna göre)
+      const tips = [pts[8], pts[12], pts[16], pts[20]];
+      const tipCenter = avg(tips);
+      const spread = tips.reduce((sum, p) => sum + dist(p, tipCenter), 0) / 4 / Math.max(size, 1e-3);
 
       const velocity = slot.prev
         ? { x: (palm.x - slot.prev.palm.x) / dt, y: (palm.y - slot.prev.palm.y) / dt }
@@ -85,7 +90,9 @@ export function createHandState() {
         isPinching: slot.pinching && !slot.fist,
         pinchPoint: avg([pts[TIP.thumb], pts[TIP.index]]),
         indexTip: pts[TIP.index],
+        spread,
         velocity,
+        speed: Math.hypot(velocity.x, velocity.y),
         sizeVelocity,
       };
       slot.prev = { palm, size };
