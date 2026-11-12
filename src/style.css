@@ -58,3 +58,34 @@ body {
   text-shadow: 0 0 8px var(--cyan);
   pointer-events: none;
 }
+
+/* Alttaki ince montaj kaydırıcısı */
+.progress-slider {
+  position: fixed;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  width: min(42vw, 520px);
+  height: 2px;
+  appearance: none;
+  background: linear-gradient(to right, rgba(56, 232, 255, 0.15), rgba(56, 232, 255, 0.5));
+  outline: none;
+  opacity: 0.8;
+}
+.progress-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 10px var(--cyan);
+  cursor: pointer;
+}
+.progress-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 10px var(--cyan);
+}

@@ -20,9 +20,9 @@ const ringFrag = /* glsl */ `
     float angle = atan(p.y, p.x) / 6.28318 + 0.5;
     float dash = step(0.35, fract(angle * uSegments + uTime * 0.15));
     float r = length(p) * 2.0;
-    float edge = smoothstep(0.86, 0.9, r) * (1.0 - smoothstep(0.96, 1.0, r));
+    float edge = smoothstep(0.955, 0.965, r) * (1.0 - smoothstep(0.985, 0.995, r));
     float alpha = edge * (0.25 + 0.75 * dash);
-    gl_FragColor = vec4(uColor * 1.5, alpha);
+    gl_FragColor = vec4(uColor, alpha * 0.45);
   }
 `;
 
@@ -59,7 +59,7 @@ export function createHologramRing(radius = 0.75) {
 
   const grid = new THREE.PolarGridHelper(radius * 1.6, 16, 6, 64, HOLO_CYAN, HOLO_CYAN);
   grid.material.transparent = true;
-  grid.material.opacity = 0.08;
+  grid.material.opacity = 0.05;
   grid.material.blending = THREE.AdditiveBlending;
   grid.material.depthWrite = false;
   group.add(grid);

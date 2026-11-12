@@ -16,7 +16,7 @@ export function createScene(canvas) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.1;
+  renderer.toneMappingExposure = 1.0;
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#02060c');
@@ -30,9 +30,9 @@ export function createScene(canvas) {
   composer.addPass(new RenderPass(scene, camera));
   const bloom = new UnrealBloomPass(
     new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2),
-    0.9, // güç
-    0.55, // yarıçap
-    0.12, // eşik: bundan parlak pikseller taşar
+    0.45, // güç
+    0.4, // yarıçap
+    0.35, // eşik: bundan parlak pikseller taşar
   );
   composer.addPass(bloom);
   composer.addPass(new OutputPass());

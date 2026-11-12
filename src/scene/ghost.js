@@ -10,10 +10,11 @@ export function createGhost(modelRoot) {
   modelRoot.updateMatrixWorld(true);
   modelRoot.traverse((obj) => {
     if (!obj.isMesh) return;
-    const mesh = new THREE.Mesh(obj.geometry, material);
+    // Sadece kenar çizgileri: üçgen ağı yerine temiz bir teknik çizim görünümü
+    const lines = new THREE.LineSegments(new THREE.EdgesGeometry(obj.geometry, 25), material);
     // Parçanın dünya konumunu kopyala: hayalet, hiyerarşiden bağımsız dursun
-    obj.matrixWorld.decompose(mesh.position, mesh.quaternion, mesh.scale);
-    ghost.add(mesh);
+    obj.matrixWorld.decompose(lines.position, lines.quaternion, lines.scale);
+    ghost.add(lines);
   });
 
   return ghost;
