@@ -13,7 +13,7 @@ export function createScene(canvas) {
     powerPreference: 'high-performance',
   });
   // Orta seviye laptopta akıcı kalsın diye piksel oranını sınırlıyoruz
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+  renderer.setPixelRatio(1);
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
@@ -29,7 +29,7 @@ export function createScene(canvas) {
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
   const bloom = new UnrealBloomPass(
-    new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2),
+    new THREE.Vector2(window.innerWidth / 4, window.innerHeight / 4),
     0.45, // güç
     0.4, // yarıçap
     0.35, // eşik: bundan parlak pikseller taşar
@@ -40,9 +40,29 @@ export function createScene(canvas) {
   const clock = new THREE.Clock();
   const updaters = new Set();
 
+  // Otomatik performans modu: kareler uzun sürerse bloom kapanır
+  let slowFrames = 0;
+  let lowQuality = false;
+  const qualityListeners = new Set();
+  function watchPerformance(dt) {
+    if (lowQuality) return;
+    slowFrames = dt > 0.034 ? slowFrames + 1 : Math.max(0, slowFrames - 2);
+    if (slowFrames > 90) setQuality('low');
+  }
+  function setQuality(level) {
+    lowQuality = level === 'low';
+    bloom.enabled = !lowQuality;
+    for (const fn of qualityListeners) fn(level);
+  }
+
+  let aspectOverride = null;
   function resize() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    let w = window.innerWidth;
+    let h = window.innerHeight;
+    if (aspectOverride) {
+      if (w / h > aspectOverride) w = Math.round(h * aspectOverride);
+      else h = Math.round(w / aspectOverride);
+    }
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
@@ -51,7 +71,9 @@ export function createScene(canvas) {
   window.addEventListener('resize', resize);
 
   function frame() {
-    const dt = Math.min(clock.getDelta(), 0.05);
+    const rawDt = clock.getDelta();
+    const dt = Math.min(rawDt, 0.05);
+    watchPerformance(rawDt);
     sharedTime.value += dt;
     for (const fn of updaters) fn(dt, sharedTime.value);
     composer.render();
@@ -70,6 +92,16 @@ export function createScene(canvas) {
     },
     start() {
       frame();
+    },
+    setQuality,
+    isLowQuality: () => lowQuality,
+    onQualityChange(fn) {
+      qualityListeners.add(fn);
+    },
+    // null = tam ekran; sayı = sabit en-boy oranı (ör. 9/16), canvas ortalanır
+    setAspect(ratio) {
+      aspectOverride = ratio;
+      resize();
     },
   };
 }

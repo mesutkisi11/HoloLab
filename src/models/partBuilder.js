@@ -38,7 +38,11 @@ export function addMesh(
   mesh.rotation.set(...rotation);
   mesh.userData.partId = part.userData.part.id;
 
-  if (edges) mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 25), edgeMaterial));
+  if (edges) {
+    const lines = new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 25), edgeMaterial);
+    lines.raycast = () => {}; // kenar çizgileri ışın testine girmesin (performans)
+    mesh.add(lines);
+  }
 
   part.add(mesh);
   return mesh;
@@ -73,8 +77,8 @@ export function corners(x, z) {
 }
 
 // Tüm modelin saydamlığı (galeride yandaki tasarımları söndürmek için)
-export function setModelOpacity(root, value) {
-  for (const part of collectParts(root)) {
+export function setModelOpacity(root, value, parts = collectParts(root)) {
+  for (const part of parts) {
     part.userData.part.material.uniforms.uOpacity.value = value;
     part.userData.part.edgeMaterial.opacity = 0.3 * value;
   }

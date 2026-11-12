@@ -8,7 +8,7 @@ const PARTICLES = 320;
 
 // Hologram çöp kutusu: kameraya bağlı durur (ekranın sağ altında), kavrama sırasında belirir.
 // throwIn(): nesne kutuya uçar, piksellere dağılır, kapak kapanır. Sonra 5 sn "Geri al" halkası.
-export function createTrashBin(app, { hud }) {
+export function createTrashBin(app, { hud, sounds }) {
   const { scene, camera } = app;
   scene.add(camera); // kameranın çocukları çizilsin diye kamera sahnede olmalı
 
@@ -137,6 +137,7 @@ export function createTrashBin(app, { hud }) {
   function update(dt) {
     const target = shown || anim ? 1 : 0.001;
     bin.scale.setScalar(THREE.MathUtils.damp(bin.scale.x, target, 10, dt));
+    bin.visible = bin.scale.x > 0.01; // küçülünce tamamen gizle (bloom'da nokta kalmasın)
     lidPivot.rotation.x = THREE.MathUtils.damp(lidPivot.rotation.x, lidTarget, 8, dt);
     body.userData.part.material.uniforms.uHighlight.value = THREE.MathUtils.damp(
       body.userData.part.material.uniforms.uHighlight.value,
@@ -189,6 +190,7 @@ export function createTrashBin(app, { hud }) {
             pPos[i * 3 + 2] = tmp.z + (Math.random() - 0.5) * 0.25;
           }
           particles.visible = true;
+          sounds?.scatter();
         }
       }
     } else if (anim.phase === 'bounce') {

@@ -15,7 +15,7 @@ const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
 class HandSlot {
   constructor() {
-    this.filters = Array.from({ length: 21 }, () => new PointFilter({ minCutoff: 1.2, beta: 0.05 }));
+    this.filters = Array.from({ length: 21 }, () => new PointFilter({ minCutoff: 2.0, beta: 0.1 }));
     this.sizeFilter = new OneEuroFilter({ minCutoff: 0.8, beta: 0.01 });
     this.prev = null;
     this.pinching = false;

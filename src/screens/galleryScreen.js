@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { setModelOpacity, fitScale } from '../models/partBuilder.js';
+import { setModelOpacity, fitScale, collectParts } from '../models/partBuilder.js';
 import { createGalleryGestures } from '../hands/galleryGestures.js';
 import { clamp01, easeInOutCubic } from '../choreo/easing.js';
 
@@ -9,7 +9,7 @@ const ARC_STEP = 0.55; // radyan: komşu tasarımlar arası açı
 const PREVIEW_SIZE = 0.6;
 
 // Galeri ekranı: tasarımlar yay üzerinde dönen küçük hologramlar olarak durur.
-export function createGalleryScreen(app, { hud, handVisuals, registry, onOpen, onGrabStart, onGrabRelease }) {
+export function createGalleryScreen(app, { hud, handVisuals, sounds, registry, onOpen, onGrabStart, onGrabRelease }) {
   const { scene, camera, canvas } = app;
   const group = new THREE.Group();
   group.position.copy(GALLERY_CENTER);
@@ -42,7 +42,7 @@ export function createGalleryScreen(app, { hud, handVisuals, registry, onOpen, o
       root.position.sub(box.getCenter(new THREE.Vector3()));
       holder.add(root);
       group.add(holder);
-      items.push({ design, holder, root, spin: Math.random() * Math.PI * 2 });
+      items.push({ design, holder, root, parts: collectParts(root), spin: Math.random() * Math.PI * 2, opacity: -1 });
     }
     if (selectId) {
       const i = items.findIndex((it) => it.design.id === selectId);
@@ -82,7 +82,11 @@ export function createGalleryScreen(app, { hud, handVisuals, registry, onOpen, o
       it.holder.scale.setScalar(scale);
       it.spin += dt * (0.25 + closeness * 0.2);
       it.root.rotation.y = it.spin;
-      setModelOpacity(it.root, THREE.MathUtils.lerp(0.25, 1, closeness));
+      const op = THREE.MathUtils.lerp(0.25, 1, closeness);
+      if (Math.abs(op - it.opacity) > 0.01) {
+        it.opacity = op;
+        setModelOpacity(it.root, op, it.parts);
+      }
     }
     void time;
   }
@@ -100,7 +104,7 @@ export function createGalleryScreen(app, { hud, handVisuals, registry, onOpen, o
       const h = opening.item.holder;
       h.position.lerpVectors(opening.from, new THREE.Vector3(0, 0, 0.35), k);
       h.scale.setScalar(THREE.MathUtils.lerp(1, 2.2, k));
-      setModelOpacity(opening.item.root, 1 - k);
+      setModelOpacity(opening.item.root, 1 - k, opening.item.parts);
       if (k >= 1) {
         const design = opening.item.design;
         opening = null;
@@ -117,7 +121,9 @@ export function createGalleryScreen(app, { hud, handVisuals, registry, onOpen, o
   }
 
   function moveBy(delta) {
+    const before = Math.round(target);
     target = clampIndex(target + delta);
+    if (Math.round(target) !== before) sounds?.whoosh();
     updateLabel();
   }
 
@@ -126,7 +132,9 @@ export function createGalleryScreen(app, { hud, handVisuals, registry, onOpen, o
   }
 
   function snap(extra = 0) {
+    const before = Math.round(cursor);
     target = clampIndex(Math.round(target + extra));
+    if (Math.round(target) !== before) sounds?.whoosh();
     updateLabel();
   }
 

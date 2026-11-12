@@ -19,9 +19,9 @@ body {
 
 #scene {
   position: fixed;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   display: block;
 }
 
@@ -214,4 +214,188 @@ body {
 .undo-ring .fill {
   stroke: #ffb347;
   filter: drop-shadow(0 0 4px #ffb347);
+}
+
+/* Rehber ekranı */
+.guide {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2, 6, 12, 0.82);
+  backdrop-filter: blur(3px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
+  z-index: 20;
+}
+.guide.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.guide-card {
+  max-width: 920px;
+  width: calc(100% - 40px);
+  max-height: calc(100% - 40px);
+  overflow: auto;
+  padding: 28px 34px;
+  border: 1px solid rgba(56, 232, 255, 0.35);
+  box-shadow: 0 0 30px rgba(56, 232, 255, 0.15), inset 0 0 40px rgba(56, 232, 255, 0.04);
+  background: rgba(2, 10, 18, 0.7);
+}
+.guide-title {
+  font-size: 22px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  text-shadow: 0 0 14px var(--cyan);
+}
+.guide-sub {
+  opacity: 0.7;
+  font-size: 13px;
+  margin: 8px 0 20px;
+}
+.guide-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 26px;
+}
+@media (max-width: 700px) {
+  .guide-cols {
+    grid-template-columns: 1fr;
+  }
+}
+.guide-head {
+  font-size: 11px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-bottom: 10px;
+}
+.guide-row {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  column-gap: 12px;
+  align-items: center;
+  font-size: 12px;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(56, 232, 255, 0.08);
+}
+.guide-row b {
+  font-weight: 500;
+  color: #e6fbff;
+}
+.guide-row > span:last-child {
+  grid-column: 2;
+  opacity: 0.6;
+  font-size: 11px;
+}
+.guide-row .gi {
+  grid-row: span 2;
+}
+.guide-keys {
+  margin-top: 18px;
+  font-size: 11px;
+  opacity: 0.55;
+  letter-spacing: 0.05em;
+}
+.guide-close {
+  margin-top: 14px;
+  font-size: 11px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  opacity: 0.5;
+  text-align: center;
+}
+
+/* Küçük animasyonlu hareket ikonları: iki nokta (i) farklı şekillerde hareket eder */
+.gi {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  display: inline-block;
+}
+.gi i {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 8px var(--cyan);
+  left: 10px;
+  top: 10px;
+}
+.gi-swipe i:first-child { animation: gi-swipe 1.6s ease-in-out infinite; }
+.gi-swipe i:last-child { display: none; }
+@keyframes gi-swipe { 0%, 100% { transform: translateX(-9px); } 50% { transform: translateX(9px); } }
+.gi-up i:first-child { animation: gi-up 1.6s ease-in-out infinite; }
+.gi-up i:last-child { display: none; }
+@keyframes gi-up { 0%, 100% { transform: translateY(9px); } 50% { transform: translateY(-9px); } }
+.gi-fist i:first-child { animation: gi-fist 1.4s ease-in-out infinite; }
+.gi-fist i:last-child { display: none; }
+@keyframes gi-fist { 0%, 100% { transform: scale(1.8); opacity: 0.5; } 50% { transform: scale(0.8); opacity: 1; } }
+.gi-hold i:first-child { animation: gi-hold 2.2s ease-in-out infinite; background: #ffb347; box-shadow: 0 0 8px #ffb347; }
+.gi-hold i:last-child { display: none; }
+@keyframes gi-hold { 0%, 30% { transform: scale(0.8) translate(0, 0); } 70%, 100% { transform: scale(0.8) translate(10px, 10px); opacity: 0; } }
+.gi-pull i:first-child { animation: gi-pull 1.6s ease-in-out infinite; }
+.gi-pull i:last-child { display: none; }
+@keyframes gi-pull { 0%, 100% { transform: scale(1.6); } 50% { transform: scale(0.7); } }
+.gi-pinch2 i:first-child { animation: gi-p-a 1.6s ease-in-out infinite; }
+.gi-pinch2 i:last-child { animation: gi-p-b 1.6s ease-in-out infinite; }
+@keyframes gi-p-a { 0%, 100% { transform: translateX(-2px); } 50% { transform: translateX(-10px); } }
+@keyframes gi-p-b { 0%, 100% { transform: translateX(2px); } 50% { transform: translateX(10px); } }
+.gi-pinch3 i:first-child { animation: gi-p-a 1.6s ease-in-out infinite; }
+.gi-pinch3 i:last-child { animation: gi-p-b 1.6s ease-in-out infinite; background: #ffb347; box-shadow: 0 0 8px #ffb347; }
+.gi-grab i:first-child { animation: gi-grab 1.8s ease-in-out infinite; background: #ffb347; box-shadow: 0 0 8px #ffb347; }
+.gi-grab i:last-child { opacity: 0.3; }
+@keyframes gi-grab { 0%, 20% { transform: translate(0, 0); } 60%, 100% { transform: translate(0, -11px); } }
+.gi-point i:first-child { animation: gi-point 1.6s ease-in-out infinite; }
+.gi-point i:last-child { width: 20px; height: 20px; left: 5px; top: 5px; background: none; border: 1px solid var(--cyan); animation: gi-ring 1.6s linear infinite; }
+@keyframes gi-point { 0%, 100% { transform: scale(0.6); } 50% { transform: scale(1); } }
+@keyframes gi-ring { to { transform: rotate(360deg); } }
+.gi-drag i:first-child { animation: gi-drag 2.4s linear infinite; }
+.gi-drag i:last-child { display: none; }
+@keyframes gi-drag { 0% { transform: rotate(0) translateX(8px); } 100% { transform: rotate(360deg) translateX(8px); } }
+.gi-push i:first-child { animation: gi-push 1.5s ease-in-out infinite; }
+.gi-push i:last-child { display: none; }
+@keyframes gi-push { 0%, 100% { transform: scale(0.7); opacity: 0.6; } 50% { transform: scale(2); opacity: 1; } }
+.gi-zoom i:first-child { animation: gi-p-a 1.6s ease-in-out infinite; }
+.gi-zoom i:last-child { animation: gi-p-b 1.6s ease-in-out infinite; }
+.gi-fists i:first-child { animation: gi-f-a 1.6s ease-in-out infinite; }
+.gi-fists i:last-child { animation: gi-f-b 1.6s ease-in-out infinite; }
+@keyframes gi-f-a { 0%, 100% { transform: translateX(-10px); } 50% { transform: translateX(-2px); } }
+@keyframes gi-f-b { 0%, 100% { transform: translateX(10px); } 50% { transform: translateX(2px); } }
+
+.help-btn {
+  position: fixed;
+  top: 14px;
+  right: 18px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid rgba(56, 232, 255, 0.5);
+  background: transparent;
+  color: var(--cyan);
+  font: 13px/1 'Segoe UI', system-ui, sans-serif;
+  cursor: pointer;
+  opacity: 0.6;
+  z-index: 21;
+}
+.help-btn:hover {
+  opacity: 1;
+}
+.hud-gesture {
+  right: 56px;
+}
+
+/* Sinematik mod: arayüz gizli */
+body.cinematic .brand,
+body.cinematic .hud-status,
+body.cinematic .hud-gesture,
+body.cinematic .progress-slider,
+body.cinematic .cam-preview,
+body.cinematic .gallery-name,
+body.cinematic .help-btn,
+body.cinematic .scanlines {
+  display: none !important;
 }

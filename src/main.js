@@ -10,12 +10,17 @@ import { createGalleryScreen, GALLERY_CENTER } from './screens/galleryScreen.js'
 import { createDesignRegistry } from './gallery/designs.js';
 import { createDropZone } from './gallery/dropZone.js';
 import { createTrashBin } from './trash/trashBin.js';
+import { createSounds } from './audio/sounds.js';
+import { createGuide } from './ui/guide.js';
+import { createCinematic } from './ui/cinematic.js';
 
 const canvas = document.getElementById('scene');
 const app = createScene(canvas);
 app.canvas = canvas;
 
 const hud = createHud();
+const sounds = createSounds();
+const guide = createGuide();
 const handVisuals = createHandVisuals(app.scene, app.camera);
 const registry = createDesignRegistry();
 
@@ -27,7 +32,7 @@ let cameraMoving = true;
 // --- Ekranlar ---
 let state = 'gallery'; // 'gallery' | 'model' | 'transition'
 
-const trash = createTrashBin(app, { hud });
+const trash = createTrashBin(app, { hud, sounds });
 
 // Kavrama başlayınca çöp kutusu belirir, model kırmızımsı olur
 function onGrabStart(root) {
@@ -81,6 +86,7 @@ async function startPendingDelete(def) {
 const modelScreen = createModelScreen(app, {
   hud,
   handVisuals,
+  sounds,
   onBackToGallery: backToGallery,
   onGrabStart,
   onGrabRelease,
@@ -89,6 +95,7 @@ const modelScreen = createModelScreen(app, {
 const gallery = createGalleryScreen(app, {
   hud,
   handVisuals,
+  sounds,
   registry,
   onOpen: openDesign,
   onGrabStart,
@@ -140,9 +147,36 @@ createDropZone({
   if (direct !== null && registry.list[Number(direct)]) openDesign(registry.list[Number(direct)]);
 })();
 
+const cinematic = createCinematic(app, modelScreen);
+app.onQualityChange((level) => level === 'low' && hud.showGesture('Performans modu (B: geri al)'));
+
+// Koreografiyi JSON dosyası olarak indir (elle düzenleyip sürükle-bırak ile geri yüklenebilir)
+function downloadChoreo() {
+  const exp = modelScreen.exportChoreo();
+  if (!exp) return;
+  const blob = new Blob([JSON.stringify(exp.data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${exp.def.id}-choreo.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  hud.showGesture('Koreografi indirildi');
+}
+
 window.addEventListener('keydown', (e) => {
   const key = e.key.toLowerCase();
-  if (key === 'escape') return backToGallery();
+  if (key === 's') return hud.showGesture(sounds.toggle() ? 'Ses açık' : 'Ses kapalı');
+  if (key === 'b') {
+    app.setQuality(app.isLowQuality() ? 'high' : 'low');
+    return hud.showGesture(app.isLowQuality() ? 'Performans modu' : 'Tam kalite');
+  }
+  if (key === 'c' && state === 'model') return cinematic.toggle();
+  if (key === 'v' && state === 'model') return cinematic.toggleAspect();
+  if (key === 'j' && state === 'model') return downloadChoreo();
+  if (key === 'escape') {
+    if (cinematic.isOn()) return cinematic.toggle();
+    return backToGallery();
+  }
   if (key === 'delete' && state === 'model') return modelScreen.forceTrash();
   if (state === 'model') modelScreen.onKey(key);
   else if (state === 'gallery') gallery.onKey(key);
@@ -176,6 +210,8 @@ function updateHands(dt, time) {
   if (tracking) {
     lastSeen = time;
     hud.setStatus('');
+    // Rehber açıkken yumruk yapmak rehberi kapatır
+    if (guide.isVisible() && hands.some((x) => x.isFist)) guide.hide();
   } else if (time - lastSeen > 2) {
     hud.setStatus('Elini kameraya göster');
   }
@@ -205,6 +241,7 @@ app.onUpdate((dt, time) => {
   updateCamera(dt);
   gallery.update(dt, time);
   modelScreen.update(dt, time);
+  cinematic.update(dt);
   trash.update(dt);
 });
 

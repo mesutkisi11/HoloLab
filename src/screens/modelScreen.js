@@ -16,7 +16,7 @@ import { createSlider } from '../ui/slider.js';
 export const MODEL_VIEW = { position: new THREE.Vector3(1.1, 0.7, 1.3), target: new THREE.Vector3(0, 0.2, 0) };
 
 // Model ekranı: tek bir modelin sökülüp birleştirildiği sahne.
-export function createModelScreen(app, { hud, handVisuals, onBackToGallery, onGrabStart, onGrabRelease }) {
+export function createModelScreen(app, { hud, handVisuals, sounds, onBackToGallery, onGrabStart, onGrabRelease }) {
   const { scene, camera, canvas } = app;
 
   const orbit = new OrbitControls(camera, canvas);
@@ -222,7 +222,10 @@ export function createModelScreen(app, { hud, handVisuals, onBackToGallery, onGr
     choreo.on('complete', () => {
       finale.waveT = 0;
       finale.spinT = 0;
+      sounds?.chime();
     });
+    choreo.on('seated', () => sounds?.click());
+    choreo.on('unseated', () => sounds?.click());
 
     current = { def, root, ghost, parts, choreo, trails, finale, data };
     const urlProgress = new URLSearchParams(location.search).get('p');
@@ -315,6 +318,18 @@ export function createModelScreen(app, { hud, handVisuals, onBackToGallery, onGr
     grab.update(dt);
     trails.update(dt, choreo.isMoving);
 
+    // Sesler: hareket varsa vızıltı, dönen vida varsa tıkırtı
+    let moving = 0;
+    let screwing = false;
+    for (const st of choreo.steps) {
+      if (st.locked || (st.s > 0.001 && st.s < 0.999)) {
+        moving++;
+        if (st.screwTurns && st.s !== st.prevS) screwing = true;
+      }
+    }
+    sounds?.hum(active && moving > 0);
+    if (screwing) sounds?.tick(time);
+
     if (!grabbedModel) {
       for (const part of parts) {
         const data = part.userData.part;
@@ -325,7 +340,6 @@ export function createModelScreen(app, { hud, handVisuals, onBackToGallery, onGr
     }
 
     updateFinale(dt, root);
-    void time;
   }
 
   function updateFinale(dt, root) {
@@ -389,6 +403,8 @@ export function createModelScreen(app, { hud, handVisuals, onBackToGallery, onGr
     close,
     closeImmediate,
     forceTrash,
+    // Mevcut koreografiyi JSON olarak ver (dışa aktarma)
+    exportChoreo: () => (current ? { def: current.def, data: current.data } : null),
     unload,
     update,
     onHands,

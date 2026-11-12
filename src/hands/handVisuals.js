@@ -96,13 +96,14 @@ export function createHandVisuals(scene, camera) {
 
   const ndc = new THREE.Vector3();
   const dir = new THREE.Vector3();
+  const forward = new THREE.Vector3();
 
   // Normalize (0..1) el koordinatını, kameradan planeDistance uzaklıktaki dünya noktasına çevirir
   function toWorld(p, planeDistance, out) {
     ndc.set(p.x * 2 - 1, -(p.y * 2 - 1), 0.5).unproject(camera);
     dir.copy(ndc).sub(camera.position).normalize();
     // Kamera bakış yönü boyunca planeDistance kadar ilerle
-    const forward = camera.getWorldDirection(new THREE.Vector3());
+    camera.getWorldDirection(forward);
     const scale = planeDistance / Math.max(1e-4, dir.dot(forward));
     return out.copy(camera.position).addScaledVector(dir, scale);
   }
