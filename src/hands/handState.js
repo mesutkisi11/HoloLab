@@ -57,16 +57,19 @@ export function createHandState() {
       const size = slot.sizeFilter.filter(dist(wrist, pts[9]), t);
 
       // Parmak uzamış mı: uç-bilek mesafesi, orta eklem-bilek mesafesinden büyükse
-      let extended = 0;
-      for (const f of FINGERS) {
-        if (dist(pts[f.tip], wrist) > dist(pts[f.pip], wrist) * 1.15) extended++;
-      }
+      const fingersUp = FINGERS.map((f) => dist(pts[f.tip], wrist) > dist(pts[f.pip], wrist) * 1.15);
+      const extended = fingersUp.filter(Boolean).length;
       const openness = extended / 4;
 
       // Pinch: başparmak ucu ile işaret parmağı ucu arasındaki mesafe (el boyuna göre)
       const pinchDist = dist(pts[TIP.thumb], pts[TIP.index]) / Math.max(size, 1e-3);
       // Histerezis: başlaması için 0.35 altına, bitmesi için 0.5 üstüne çıkması gerekir
       slot.pinching = slot.pinching ? pinchDist < 0.45 : pinchDist < 0.28;
+      // Üç parmak: orta parmak ucu da başparmağa değiyor
+      const middleDist = dist(pts[TIP.thumb], pts[TIP.middle]) / Math.max(size, 1e-3);
+      const pinch3 = pinchDist < 0.35 && middleDist < 0.4;
+      // İşaret etme: sadece işaret parmağı açık
+      const isPointing = fingersUp[0] && extended === 1;
       slot.fist = slot.fist ? extended <= 1 : extended === 0;
 
       // Parmak yelpazesi: dört parmak ucunun kendi merkezlerinden ortalama uzaklığı (el boyuna göre)
@@ -88,6 +91,9 @@ export function createHandState() {
         isOpen: openness >= 0.75 && !slot.pinching,
         isFist: slot.fist,
         isPinching: slot.pinching && !slot.fist,
+        pinchDist,
+        pinch3,
+        isPointing,
         pinchPoint: avg([pts[TIP.thumb], pts[TIP.index]]),
         indexTip: pts[TIP.index],
         spread,

@@ -50,6 +50,8 @@ export function createModelScreen(app, { hud, handVisuals, onBackToGallery, onGr
   let closing = null;
   let grabbedModel = null; // { origin } kavranmış model (çöp için)
   let frozen = false; // çöp animasyonu sırasında sahne dokunulmaz
+  let focus = null; // { id, savedTarget, savedPos } yakından gösterilen parça
+  const camGoal = { target: new THREE.Vector3(), position: new THREE.Vector3(), active: false };
   const modelBox = new THREE.Box3();
   const spinAxis = new THREE.Vector3();
 
@@ -131,6 +133,16 @@ export function createModelScreen(app, { hud, handVisuals, onBackToGallery, onGr
       });
     },
     isModelGrabbed: () => !!grabbedModel,
+    layerBounds: () => current?.choreo.layerBounds() ?? [0, 1],
+    layerNameAt: (p) => current?.choreo.layerNameAt(p) ?? null,
+    // Parça sökülmüş mü (yerinde değil)?
+    isDetached(id) {
+      const st = current?.choreo.getStep(id);
+      return !!st && st.s < 0.999;
+    },
+    focus: focusPart,
+    unfocus: unfocusPart,
+    focusedId: () => focus?.id ?? null,
     hud,
     visuals: handVisuals,
     ring: targetRing,
@@ -144,6 +156,40 @@ export function createModelScreen(app, { hud, handVisuals, onBackToGallery, onGr
   function forceTrash() {
     if (!current || !gestureCtx.grabModel()) return;
     gestureCtx.releaseModel({ x: 3, y: 3 }, { palm: { x: 0.9, y: 0.9 } });
+  }
+
+  // Parçayı yakından göster: kamera parçaya yaklaşır, diğerleri sönükleşir
+  function focusPart(id) {
+    const part = getPart(id);
+    if (!part || !current) return;
+    if (!focus) focus = { savedTarget: orbit.target.clone(), savedPos: camera.position.clone() };
+    focus.id = id;
+    const box = new THREE.Box3().setFromObject(part);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3()).length();
+    const dir = camera.position.clone().sub(orbit.target).normalize();
+    camGoal.target.copy(center);
+    camGoal.position.copy(center).addScaledVector(dir, Math.max(0.35, size * 2.6));
+    camGoal.active = true;
+    for (const p of current.parts) {
+      const u = p.userData.part.material.uniforms;
+      u.uOpacity.value = p === part ? 1 : 0.12;
+      p.userData.part.edgeMaterial.opacity = p === part ? 0.6 : 0.04;
+    }
+    setPartHighlight(part, 1);
+    hud.showGesture(part.userData.part.name);
+  }
+
+  function unfocusPart() {
+    if (!focus || !current) return;
+    camGoal.target.copy(focus.savedTarget);
+    camGoal.position.copy(focus.savedPos);
+    camGoal.active = true;
+    for (const p of current.parts) {
+      p.userData.part.material.uniforms.uOpacity.value = 1;
+      p.userData.part.edgeMaterial.opacity = 0.3;
+    }
+    focus = null;
   }
 
   async function resolveChoreography(def, root, parts) {
@@ -215,6 +261,8 @@ export function createModelScreen(app, { hud, handVisuals, onBackToGallery, onGr
 
   function unload() {
     if (!current) return;
+    focus = null;
+    camGoal.active = false;
     stage.remove(current.root, current.ghost);
     current.trails.dispose();
     current = null;
@@ -230,6 +278,11 @@ export function createModelScreen(app, { hud, handVisuals, onBackToGallery, onGr
   }
 
   function update(dt, time) {
+    if (camGoal.active) {
+      camera.position.lerp(camGoal.position, 1 - Math.exp(-6 * dt));
+      orbit.target.lerp(camGoal.target, 1 - Math.exp(-6 * dt));
+      if (camera.position.distanceTo(camGoal.position) < 0.004) camGoal.active = false;
+    }
     if (active) orbit.update();
     ring.update(dt);
     targetRing.update(dt);
@@ -265,7 +318,7 @@ export function createModelScreen(app, { hud, handVisuals, onBackToGallery, onGr
     if (!grabbedModel) {
       for (const part of parts) {
         const data = part.userData.part;
-        const target = choreo.isMoving(data.id) ? 1 : 0;
+        const target = choreo.isMoving(data.id) || focus?.id === data.id ? 1 : 0;
         const next = THREE.MathUtils.damp(data.highlight, target, 12, dt);
         if (Math.abs(next - data.highlight) > 0.001) setPartHighlight(part, next);
       }
@@ -319,7 +372,16 @@ export function createModelScreen(app, { hud, handVisuals, onBackToGallery, onGr
     }
     if (key === 'arrowright') stepBy(1);
     if (key === 'arrowleft') stepBy(-1);
+    if (key === 'f') unfocusPart();
   }
+
+  // Fare yedeği: sökülmüş parçaya çift tık = yakından göster, boşluğa çift tık = çık
+  canvas.addEventListener('dblclick', (e) => {
+    if (!active) return;
+    const id = grab.hoverAt((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+    if (id && gestureCtx.isDetached(id)) focusPart(id);
+    else unfocusPart();
+  });
 
   return {
     load,

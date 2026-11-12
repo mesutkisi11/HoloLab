@@ -143,6 +143,25 @@ export function createChoreography(parts, data) {
       listeners.get(name).add(fn);
       return () => listeners.get(name).delete(fn);
     },
+    // Katman sınırları: her grubun (JSON'daki "group") bittiği progress değerleri.
+    // Kademeli sök/tak bu sınırlar arasında çalışır.
+    layerBounds() {
+      const ends = new Map();
+      for (const st of steps) {
+        const g = st.group ?? st.id;
+        ends.set(g, Math.max(ends.get(g) ?? 0, (st.startTime + st.duration) / duration));
+      }
+      const pts = [0, ...ends.values()].map((p) => Math.round(p * 1000) / 1000);
+      return [...new Set(pts)].sort((a, b) => a - b);
+    },
+    layerNameAt(p) {
+      let best = null;
+      for (const st of steps) {
+        const end = (st.startTime + st.duration) / duration;
+        if (end > p + 0.001 && (!best || end < best.end)) best = { end, group: st.group ?? st.id };
+      }
+      return best?.group ?? null;
+    },
     // Adım adım gezinme için: her adımın bittiği progress değerleri (sıralı, tekil)
     seatPoints() {
       const pts = steps.map((st) => (st.startTime + st.duration) / duration);

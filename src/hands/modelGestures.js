@@ -2,46 +2,49 @@ import * as THREE from 'three';
 import { clamp01 } from '../choreo/easing.js';
 
 // Model ekranındaki el hareketleri. Öncelik sırası:
-// 1) süren parça tutma  2) ağır çekim modifiye edici  3) iki el  4) tek el
+// 1) süren parça tutma / model kavrama  2) ağır çekim  3) iki el  4) tek el
 //
-// Tek el hareketleri:
-//   parmakları aç/kapat (yelpaze)  -> sök / birleştir (ilerleme)
-//   işaret parmağı parçaya yaklaş  -> hedefleme halkası
-//   pinch parça üstünde + çek      -> parçayı çıkar
-//   pinch boşlukta + sürükle       -> döndür
-//   hızlı sağa/sola kaydır         -> sonraki/önceki adım
-//   hızlı yukarı kaydır            -> galeriye dön
-//   avucu hızla öne it             -> patlat (exploded view)
+// Tek el:
+//   başparmak+işaret birleştir, aç/kapat        -> kademeli sök/tak (bir katman)
+//   başparmak+işaret+orta birleştir, aç/kapat   -> tüm modeli sök/tak
+//   pinch parça üstünde + çek                   -> parçayı çıkar
+//   sadece işaret parmağı, parçada 0.6 sn tut   -> parçayı yakından göster
+//   açık elle yavaş sürükle                     -> döndür
+//   açık elle hızlı sağa/sola kaydır            -> sonraki/önceki adım
+//   açık elle hızlı yukarı kaydır               -> galeriye dön
+//   avucu hızla öne it                          -> patlat
+//   yumruk modelin üstünde tut                  -> modeli kavra (çöp)
 // İki el:
-//   iki pinch boşlukta aç/kapat    -> yakınlaştır
-//   iki yumruğu birleştir          -> tam montaj
-//   bir yumruk sabit + diğer el    -> ağır çekim
+//   iki pinch boşlukta aç/kapat                 -> yakınlaştır
+//   iki yumruğu birleştir                       -> tam montaj
+//   bir yumruk boşlukta sabit + diğer el        -> ağır çekim
 
-const SPREAD_GAIN = 3.5;
 const SWIPE_SPEED = 1.8;
-const PUSH_RATE = 1.4; // el boyutunun saniyede %140 büyümesi = öne itme
+const PUSH_RATE = 1.4;
 const COOLDOWN = 0.9;
+const POINT_DWELL = 0.6;
+const PINCH_RELEASE = 1.5; // parmaklar bu kadar (el boyu oranı) açılırsa sök/tak biter
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const toNdc = (p) => [p.x * 2 - 1, -(p.y * 2 - 1)];
 
 export function createModelGestures(ctx) {
-  let scrub = null;
-  let scrubDwell = 0;
-  let pinch = null; // { mode: 'grab' | 'rotate', slot, last }
+  let pinch = null; // { mode: 'grab'|'layer'|'full', slot, d0, p0, lo, hi }
+  let rotate = null; // { last }
   let zoom = null;
   let fistsApart = false;
   let cooldownUntil = 0;
-  let modelFist = null; // { t0, grabbing } model üstünde tutulan yumruk
+  let modelFist = null;
+  let pointing = null; // { id, t }
   const a = new THREE.Vector3();
   const b = new THREE.Vector3();
   const handWorld = new THREE.Vector3();
 
   function update(hands, dt, time) {
-    if (pinch?.mode === 'grab') return continueGrab(hands, dt, time);
-    if (modelFist?.grabbing) return continueModelGrab(hands, time);
+    if (pinch?.mode === 'grab') return continueGrab(hands, dt);
+    if (modelFist?.grabbing) return continueModelGrab(hands);
+    if (pinch) return continueScrub(hands, dt, time);
 
-    // Ağır çekim: yumruk boşlukta ve sabit duruyorsa diğer el yavaş çalışır
     const stillFist = hands.find((h) => h.isFist && h.speed < 0.35 && !overModel(h));
     const slowMo = hands.length === 2 && !!stillFist;
     ctx.setSlowMo(slowMo);
@@ -50,17 +53,18 @@ export function createModelGestures(ctx) {
     const active = slowMo ? hands.filter((h) => h !== stillFist) : hands;
 
     if (active.length === 2) {
-      scrub = null;
-      pinch = null;
-      ctx.ring.set(null, false);
-      return twoHands(active, dt, time);
+      clearSingle();
+      return twoHands(active, time);
     }
     zoom = null;
     fistsApart = false;
     if (active.length === 1) return oneHand(active[0], dt, time);
+    clearSingle();
+  }
 
-    scrub = null;
-    pinch = null;
+  function clearSingle() {
+    rotate = null;
+    pointing = null;
     ctx.ring.set(null, false);
     ctx.visuals.setArc(null, null, false);
   }
@@ -70,7 +74,7 @@ export function createModelGestures(ctx) {
   }
 
   // ---------- İki el ----------
-  function twoHands(hands, dt, time) {
+  function twoHands(hands, time) {
     const [h1, h2] = hands;
     const d = dist(h1.palm, h2.palm);
 
@@ -84,7 +88,6 @@ export function createModelGestures(ctx) {
       }
       return;
     }
-
     if (h1.isPinching && h2.isPinching) {
       if (!zoom) {
         zoom = { d0: d };
@@ -100,37 +103,29 @@ export function createModelGestures(ctx) {
 
   // ---------- Tek el ----------
   function oneHand(h, dt, time) {
-    // Pinch: parça üstündeyse tut, boşluktaysa döndür
+    // Pinch başlangıcı: parça üstünde = tut, boşlukta = sök/tak (2 parmak katman, 3 parmak tam)
     if (h.isPinching) {
-      scrub = null;
-      ctx.visuals.setArc(null, null, false);
-      if (!pinch) {
-        const hover = ctx.grab.hoverAt(...toNdc(h.indexTip));
-        if (hover) {
-          const depth = ctx.grab.depthOf(hover);
-          ctx.visuals.toWorld(h.pinchPoint, depth, handWorld);
-          if (ctx.grab.begin(hover, handWorld)) {
-            pinch = { mode: 'grab', slot: h.slot, depth, id: hover };
-            ctx.ring.set(ctx.getPart(hover), true);
-            ctx.hud.showGesture('Parçayı tut');
-            return;
-          }
+      rotate = null;
+      pointing = null;
+      const hover = h.pinch3 ? null : ctx.grab.hoverAt(...toNdc(h.indexTip));
+      if (hover) {
+        const depth = ctx.grab.depthOf(hover);
+        ctx.visuals.toWorld(h.pinchPoint, depth, handWorld);
+        if (ctx.grab.begin(hover, handWorld)) {
+          pinch = { mode: 'grab', slot: h.slot, depth, id: hover };
+          ctx.ring.set(ctx.getPart(hover), true);
+          ctx.hud.showGesture('Parçayı tut');
+          ctx.unfocus();
+          return;
         }
-        pinch = { mode: 'rotate', slot: h.slot, last: { ...h.pinchPoint } };
-        ctx.hud.showGesture('Döndür');
-      } else if (pinch.mode === 'rotate') {
-        ctx.rotate(h.pinchPoint.x - pinch.last.x, h.pinchPoint.y - pinch.last.y);
-        pinch.last = { ...h.pinchPoint };
       }
+      beginScrub(h);
       return;
     }
-    pinch = null;
 
     if (h.isFist) {
-      scrub = null;
-      ctx.ring.set(null, false);
-      ctx.visuals.setArc(null, null, false);
-      // Yumruk modelin üstünde tutulursa model kavranır (çöpe atmak için)
+      clearSingle();
+      ctx.unfocus();
       if (!modelFist) modelFist = { t0: time, grabbing: false };
       else if (!modelFist.grabbing && time - modelFist.t0 > 0.4 && overModel(h)) {
         if (ctx.grabModel()) {
@@ -143,63 +138,119 @@ export function createModelGestures(ctx) {
     }
     modelFist = null;
 
-    // Hedefleme halkası: işaret parmağı hangi parçanın üstünde?
-    const hover = ctx.grab.hoverAt(...toNdc(h.indexTip));
-    ctx.ring.set(hover ? ctx.getPart(hover) : null, false);
-
-    // Hızlı kaydırma ve öne itme (açık el)
-    if (h.isOpen && time > cooldownUntil) {
-      const vx = h.velocity.x;
-      const vy = h.velocity.y;
-      if (Math.abs(vx) > SWIPE_SPEED && Math.abs(vy) < Math.abs(vx) * 0.6) {
-        cooldownUntil = time + COOLDOWN;
-        scrub = null;
-        ctx.hud.showGesture(vx > 0 ? 'Sonraki adım' : 'Önceki adım');
-        ctx.stepBy(vx > 0 ? 1 : -1);
-        return;
+    // İşaret parmağı: hedefleme halkası + bekleyince yakından göster
+    if (h.isPointing) {
+      rotate = null;
+      const hover = ctx.grab.hoverAt(...toNdc(h.indexTip));
+      ctx.ring.set(hover ? ctx.getPart(hover) : null, false);
+      if (hover && ctx.isDetached(hover)) {
+        if (pointing?.id !== hover) pointing = { id: hover, t: 0 };
+        pointing.t += dt;
+        if (pointing.t >= POINT_DWELL && ctx.focusedId() !== hover) {
+          ctx.focus(hover);
+          ctx.hud.showGesture('Yakından göster');
+        }
+      } else {
+        pointing = null;
       }
-      if (-vy > SWIPE_SPEED && Math.abs(vx) < -vy * 0.6) {
-        cooldownUntil = time + COOLDOWN;
-        scrub = null;
-        ctx.hud.showGesture('Galeriye dön');
-        ctx.backToGallery();
-        return;
-      }
-      if (h.sizeVelocity / Math.max(h.size, 1e-3) > PUSH_RATE && h.speed < 1.0) {
-        cooldownUntil = time + COOLDOWN;
-        scrub = null;
-        ctx.hud.showGesture('Patlat');
-        ctx.explode();
-        return;
-      }
+      return;
     }
+    pointing = null;
 
-    // Parmak yelpazesi ile sök/birleştir: el sakinken devreye girer
-    const calm = h.speed < 0.9 && h.openness >= 0.5;
-    if (!calm) {
-      scrubDwell = 0;
-      scrub = null;
+    // Açık el: yavaş = döndür, hızlı = adım / galeri / patlat
+    if (h.isOpen) {
+      const hover = ctx.grab.hoverAt(...toNdc(h.indexTip));
+      ctx.ring.set(hover ? ctx.getPart(hover) : null, false);
+
+      if (time > cooldownUntil) {
+        const vx = h.velocity.x;
+        const vy = h.velocity.y;
+        if (Math.abs(vx) > SWIPE_SPEED && Math.abs(vy) < Math.abs(vx) * 0.6) {
+          cooldownUntil = time + COOLDOWN;
+          rotate = null;
+          ctx.unfocus();
+          ctx.hud.showGesture(vx > 0 ? 'Sonraki adım' : 'Önceki adım');
+          ctx.stepBy(vx > 0 ? 1 : -1);
+          return;
+        }
+        if (-vy > SWIPE_SPEED && Math.abs(vx) < -vy * 0.6) {
+          cooldownUntil = time + COOLDOWN;
+          rotate = null;
+          ctx.unfocus();
+          ctx.hud.showGesture('Galeriye dön');
+          ctx.backToGallery();
+          return;
+        }
+        if (h.sizeVelocity / Math.max(h.size, 1e-3) > PUSH_RATE && h.speed < 1.0) {
+          cooldownUntil = time + COOLDOWN;
+          rotate = null;
+          ctx.unfocus();
+          ctx.hud.showGesture('Patlat');
+          ctx.explode();
+          return;
+        }
+      }
+      // Yavaş sürükleme: döndür
+      if (!rotate) rotate = { last: { ...h.palm }, moved: 0 };
+      else {
+        const dx = h.palm.x - rotate.last.x;
+        const dy = h.palm.y - rotate.last.y;
+        rotate.moved += Math.hypot(dx, dy);
+        if (rotate.moved > 0.02) {
+          ctx.rotate(dx, dy);
+          if (rotate.moved < 0.03) ctx.hud.showGesture('Döndür');
+        }
+        rotate.last = { ...h.palm };
+      }
+      return;
+    }
+    rotate = null;
+    ctx.ring.set(null, false);
+  }
+
+  // ---------- Sök / tak (pinch aç-kapat) ----------
+  function beginScrub(h) {
+    const p0 = ctx.getProgress();
+    const full = h.pinch3;
+    let lo = 0;
+    let hi = 1;
+    let label = 'Sök / tak (tümü)';
+    if (!full) {
+      // Bir katman: mevcut ilerlemenin altındaki ve üstündeki en yakın katman sınırları
+      const bounds = ctx.layerBounds();
+      lo = [...bounds].reverse().find((x) => x < p0 - 0.002) ?? 0;
+      hi = bounds.find((x) => x > p0 + 0.002) ?? 1;
+      const name = ctx.layerNameAt(Math.max(0, p0 - 0.001));
+      label = name ? `Katman: ${name}` : 'Katman';
+    }
+    pinch = { mode: full ? 'full' : 'layer', slot: h.slot, d0: h.pinchDist, p0, lo, hi };
+    ctx.ring.set(null, false);
+    ctx.unfocus();
+    ctx.hud.showGesture(label);
+  }
+
+  function continueScrub(hands, dt, time) {
+    const h = hands.find((x) => x.slot === pinch.slot);
+    // Bitiş: el kayboldu, yumruk, parmaklar çok açıldı veya hızlı hareket
+    if (!h || h.isFist || h.pinchDist > PINCH_RELEASE || h.speed > SWIPE_SPEED) {
+      pinch = null;
       ctx.visuals.setArc(null, null, false);
       return;
     }
-    scrubDwell += dt;
-    if (!scrub) {
-      if (scrubDwell < 0.15) return;
-      scrub = { spread0: h.spread, p0: ctx.getProgress() };
-      ctx.hud.showGesture('Sök / birleştir');
-    }
-    const gain = SPREAD_GAIN * (ctx.isSlowMo() ? 0.3 : 1);
-    const target = clamp01(scrub.p0 - (h.spread - scrub.spread0) * gain);
+    // Parmaklar açıldıkça sökülür, kapandıkça birleşir
+    const gain = (pinch.mode === 'full' ? 1.1 : Math.max(0.5, (pinch.hi - pinch.lo) / 0.7)) * (ctx.isSlowMo() ? 0.3 : 1);
+    const raw = pinch.p0 - (h.pinchDist - pinch.d0) * gain;
+    const target = THREE.MathUtils.clamp(clamp01(raw), pinch.lo, pinch.hi);
     ctx.setProgress(THREE.MathUtils.damp(ctx.getProgress(), target, 16, dt));
 
     const pd = ctx.planeDistance();
     ctx.visuals.toWorld(h.points[4], pd, a);
-    ctx.visuals.toWorld(h.points[20], pd, b);
+    ctx.visuals.toWorld(h.points[8], pd, b);
     ctx.visuals.setArc(a, b, true, time);
   }
 
   // ---------- Süren model kavrama ----------
-  function continueModelGrab(hands, time) {
+  function continueModelGrab(hands) {
     const h = hands.find((x) => x.slot === modelFist.slot);
     if (!h || !h.isFist) {
       modelFist = null;
@@ -208,7 +259,6 @@ export function createModelGestures(ctx) {
     }
     ctx.visuals.toWorld(h.palm, ctx.planeDistance(), handWorld);
     ctx.moveModel(handWorld);
-    void time;
   }
 
   // ---------- Süren parça tutma ----------
