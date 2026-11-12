@@ -2,7 +2,7 @@
 // Kullanım: node scripts/snap.mjs <çıktı.png> [url] [bekleme ms] [tuşlar: "e,space"]
 import { chromium } from 'playwright-core';
 
-const [out = 'snap.png', url = 'http://localhost:5173/', waitMs = '4000', keys = '', drag = ''] =
+const [out = 'snap.png', url = 'http://localhost:5173/', waitMs = '4000', keys = '', drag = '', afterMs = '0'] =
   process.argv.slice(2);
 
 const browser = await chromium.launch({
@@ -30,6 +30,7 @@ for (const key of keys.split(',').filter(Boolean)) {
   await page.keyboard.press(key === 'space' ? 'Space' : key);
   await page.waitForTimeout(400);
 }
+await page.waitForTimeout(Number(afterMs));
 // drag: "x1,y1,x2,y2" fare ile sürükleme (parça çekme testi)
 if (drag) {
   const [x1, y1, x2, y2] = drag.split(',').map(Number);

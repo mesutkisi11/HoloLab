@@ -13,12 +13,14 @@ import { createMouseControls } from '../interaction/mouseControls.js';
 import { createModelGestures } from '../hands/modelGestures.js';
 import { createSlider } from '../ui/slider.js';
 
+export const MODEL_VIEW = { position: new THREE.Vector3(1.1, 0.7, 1.3), target: new THREE.Vector3(0, 0.2, 0) };
+
 // Model ekranı: tek bir modelin sökülüp birleştirildiği sahne.
-export function createModelScreen(app, { hud, handVisuals, onBackToGallery }) {
+export function createModelScreen(app, { hud, handVisuals, onBackToGallery, onGrabStart, onGrabRelease }) {
   const { scene, camera, canvas } = app;
 
   const orbit = new OrbitControls(camera, canvas);
-  orbit.target.set(0, 0.2, 0);
+  orbit.target.copy(MODEL_VIEW.target);
   orbit.enableDamping = true;
   orbit.autoRotate = true;
   orbit.autoRotateSpeed = 0.6;
@@ -40,9 +42,14 @@ export function createModelScreen(app, { hud, handVisuals, onBackToGallery }) {
   });
 
   let current = null;
+  let active = false;
   let playTarget = null;
   let playSpeed = 1;
   let slowMo = false;
+  let stageScaleTarget = 1;
+  let closing = null;
+  let grabbedModel = null; // { origin } kavranmış model (çöp için)
+  let frozen = false; // çöp animasyonu sırasında sahne dokunulmaz
   const modelBox = new THREE.Box3();
   const spinAxis = new THREE.Vector3();
 
@@ -56,8 +63,7 @@ export function createModelScreen(app, { hud, handVisuals, onBackToGallery }) {
     },
     camera,
   });
-  // partGrab "choreo" ve "root" alanlarını getter'la okur; current değişince otomatik güncellenir
-  createMouseControls({ canvas, camera, grab, orbit, ring: targetRing, getPart });
+  createMouseControls({ canvas, camera, grab, orbit, ring: targetRing, getPart, isActive: () => active });
 
   function playTo(target, speed = 1) {
     playTarget = target;
@@ -72,7 +78,7 @@ export function createModelScreen(app, { hud, handVisuals, onBackToGallery }) {
     if (next !== undefined) playTo(next, 1);
   }
 
-  const gestures = createModelGestures({
+  const gestureCtx = {
     getProgress: () => current?.choreo.getProgress() ?? 1,
     setProgress(p) {
       playTarget = null;
@@ -98,30 +104,70 @@ export function createModelScreen(app, { hud, handVisuals, onBackToGallery }) {
     setSlowMo: (v) => (slowMo = v),
     isSlowMo: () => slowMo,
     backToGallery: () => onBackToGallery?.(),
+    // Modeli kavrama (çöpe atmak için)
+    grabModel() {
+      if (!current || grabbedModel) return false;
+      grabbedModel = { origin: stage.position.clone() };
+      stageScaleTarget = 0.85;
+      onGrabStart?.(stage);
+      return true;
+    },
+    moveModel(worldPos) {
+      if (grabbedModel) stage.position.copy(worldPos);
+    },
+    releaseModel(velocity, hand) {
+      if (!grabbedModel) return;
+      const origin = grabbedModel.origin;
+      grabbedModel = null;
+      stageScaleTarget = 1;
+      onGrabRelease?.(current?.def, velocity, hand, {
+        root: stage,
+        returnHome: () => {
+          frozen = false;
+          stage.position.copy(origin);
+          stage.visible = true;
+        },
+        freeze: () => (frozen = true),
+      });
+    },
+    isModelGrabbed: () => !!grabbedModel,
     hud,
     visuals: handVisuals,
     ring: targetRing,
     grab,
     getPart,
     planeDistance: () => camera.position.distanceTo(orbit.target),
-  });
+  };
+  const gestures = createModelGestures(gestureCtx);
 
-  async function loadChoreography(def, root, parts) {
+  // Klavye yedeği (Delete): modeli çöpe atmış gibi davran
+  function forceTrash() {
+    if (!current || !gestureCtx.grabModel()) return;
+    gestureCtx.releaseModel({ x: 3, y: 3 }, { palm: { x: 0.9, y: 0.9 } });
+  }
+
+  async function resolveChoreography(def, root, parts) {
+    if (def.choreoData) return def.choreoData;
     if (def.choreo) {
       const res = await fetch(import.meta.env.BASE_URL + def.choreo);
       return res.json();
     }
-    return generateAutoChoreography(root, parts);
+    const auto = generateAutoChoreography(root, parts);
+    if (!auto) {
+      hud.showGesture('Bu model ayrı parçalardan oluşmuyor');
+      return { model: root.name, steps: [] };
+    }
+    return auto;
   }
 
-  async function load(def) {
+  async function load(def, { startProgress = 1 } = {}) {
     unload();
-    const root = def.build();
+    const root = await def.build();
     const ghost = createGhost(root);
     stage.add(root, ghost);
     const parts = collectParts(root);
 
-    const data = await loadChoreography(def, root, parts);
+    const data = await resolveChoreography(def, root, parts);
     const choreo = createChoreography(parts, data);
     const trails = createTrails(scene, parts);
 
@@ -132,11 +178,39 @@ export function createModelScreen(app, { hud, handVisuals, onBackToGallery }) {
       finale.spinT = 0;
     });
 
-    current = { def, root, ghost, parts, choreo, trails, finale };
+    current = { def, root, ghost, parts, choreo, trails, finale, data };
     const urlProgress = new URLSearchParams(location.search).get('p');
-    if (urlProgress !== null) choreo.setProgress(Number(urlProgress));
+    choreo.setProgress(urlProgress !== null ? Number(urlProgress) : startProgress);
     slider.set(choreo.getProgress());
     document.title = `HoloLab · ${def.name}`;
+    return current;
+  }
+
+  // Galeriden açılış: küçükten büyür, sökülmüş halden birleşir
+  async function open(def) {
+    setActive(true);
+    stage.scale.setScalar(0.15);
+    stageScaleTarget = 1;
+    stage.rotation.set(0, 0, 0);
+    await load(def, { startProgress: 0 });
+    playTo(1, 1);
+  }
+
+  // Galeriye dönüş: küçülüp kaybolur
+  function close() {
+    return new Promise((resolve) => {
+      stageScaleTarget = 0.01;
+      closing = resolve;
+    });
+  }
+
+  // Silme sonrası: animasyonsuz kapat
+  function closeImmediate() {
+    frozen = false;
+    unload();
+    setActive(false);
+    stage.position.set(0, 0.28, 0);
+    stage.scale.setScalar(1);
   }
 
   function unload() {
@@ -146,10 +220,31 @@ export function createModelScreen(app, { hud, handVisuals, onBackToGallery }) {
     current = null;
   }
 
+  function setActive(v) {
+    active = v;
+    orbit.enabled = v;
+    ring.group.visible = v;
+    stage.visible = v;
+    slider.show(v);
+    if (!v) targetRing.set(null, false);
+  }
+
   function update(dt, time) {
-    orbit.update();
+    if (active) orbit.update();
     ring.update(dt);
     targetRing.update(dt);
+
+    if (frozen) return;
+    const s = THREE.MathUtils.damp(stage.scale.x, stageScaleTarget, 8, dt);
+    stage.scale.setScalar(s);
+    if (closing && s < 0.03) {
+      const done = closing;
+      closing = null;
+      unload();
+      setActive(false);
+      done();
+    }
+
     if (!current) return;
     const { choreo, parts, trails, root } = current;
 
@@ -167,11 +262,13 @@ export function createModelScreen(app, { hud, handVisuals, onBackToGallery }) {
     grab.update(dt);
     trails.update(dt, choreo.isMoving);
 
-    for (const part of parts) {
-      const data = part.userData.part;
-      const target = choreo.isMoving(data.id) ? 1 : 0;
-      const next = THREE.MathUtils.damp(data.highlight, target, 12, dt);
-      if (Math.abs(next - data.highlight) > 0.001) setPartHighlight(part, next);
+    if (!grabbedModel) {
+      for (const part of parts) {
+        const data = part.userData.part;
+        const target = choreo.isMoving(data.id) ? 1 : 0;
+        const next = THREE.MathUtils.damp(data.highlight, target, 12, dt);
+        if (Math.abs(next - data.highlight) > 0.001) setPartHighlight(part, next);
+      }
     }
 
     updateFinale(dt, root);
@@ -206,11 +303,13 @@ export function createModelScreen(app, { hud, handVisuals, onBackToGallery }) {
   }
 
   function onHands(hands, dt, time, tracking) {
+    if (!active || closing || frozen) return;
     if (tracking) orbit.autoRotate = false;
     gestures.update(hands, dt, time);
   }
 
   function onKey(key) {
+    if (!active) return;
     if (key === 'e') playTo(0, 1);
     if (key === 'a') playTo(1, 1);
     if (key === ' ') {
@@ -222,5 +321,23 @@ export function createModelScreen(app, { hud, handVisuals, onBackToGallery }) {
     if (key === 'arrowleft') stepBy(-1);
   }
 
-  return { load, unload, update, onHands, onKey, stage, orbit, get current() { return current; } };
+  return {
+    load,
+    open,
+    close,
+    closeImmediate,
+    forceTrash,
+    unload,
+    update,
+    onHands,
+    onKey,
+    setActive,
+    playTo,
+    stage,
+    orbit,
+    isActive: () => active,
+    get current() {
+      return current;
+    },
+  };
 }

@@ -32,12 +32,14 @@ export function createModelGestures(ctx) {
   let zoom = null;
   let fistsApart = false;
   let cooldownUntil = 0;
+  let modelFist = null; // { t0, grabbing } model üstünde tutulan yumruk
   const a = new THREE.Vector3();
   const b = new THREE.Vector3();
   const handWorld = new THREE.Vector3();
 
   function update(hands, dt, time) {
     if (pinch?.mode === 'grab') return continueGrab(hands, dt, time);
+    if (modelFist?.grabbing) return continueModelGrab(hands, time);
 
     // Ağır çekim: yumruk boşlukta ve sabit duruyorsa diğer el yavaş çalışır
     const stillFist = hands.find((h) => h.isFist && h.speed < 0.35 && !overModel(h));
@@ -128,8 +130,18 @@ export function createModelGestures(ctx) {
       scrub = null;
       ctx.ring.set(null, false);
       ctx.visuals.setArc(null, null, false);
+      // Yumruk modelin üstünde tutulursa model kavranır (çöpe atmak için)
+      if (!modelFist) modelFist = { t0: time, grabbing: false };
+      else if (!modelFist.grabbing && time - modelFist.t0 > 0.4 && overModel(h)) {
+        if (ctx.grabModel()) {
+          modelFist.grabbing = true;
+          modelFist.slot = h.slot;
+          ctx.hud.showGesture('Modeli kavra');
+        }
+      }
       return;
     }
+    modelFist = null;
 
     // Hedefleme halkası: işaret parmağı hangi parçanın üstünde?
     const hover = ctx.grab.hoverAt(...toNdc(h.indexTip));
@@ -184,6 +196,19 @@ export function createModelGestures(ctx) {
     ctx.visuals.toWorld(h.points[4], pd, a);
     ctx.visuals.toWorld(h.points[20], pd, b);
     ctx.visuals.setArc(a, b, true, time);
+  }
+
+  // ---------- Süren model kavrama ----------
+  function continueModelGrab(hands, time) {
+    const h = hands.find((x) => x.slot === modelFist.slot);
+    if (!h || !h.isFist) {
+      modelFist = null;
+      ctx.releaseModel(h?.velocity ?? { x: 0, y: 0 }, h);
+      return;
+    }
+    ctx.visuals.toWorld(h.palm, ctx.planeDistance(), handWorld);
+    ctx.moveModel(handWorld);
+    void time;
   }
 
   // ---------- Süren parça tutma ----------

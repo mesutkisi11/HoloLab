@@ -26,15 +26,19 @@ export function createPart({ id, name, parent, position = [0, 0, 0], rotation = 
 }
 
 // Parçaya geometri ekler: hologram yüzeyi + kenar çizgileri
-export function addMesh(part, geometry, { position = [0, 0, 0], rotation = [0, 0, 0] } = {}) {
+export function addMesh(
+  part,
+  geometry,
+  { position = [0, 0, 0], rotation = [0, 0, 0] } = {},
+  { edges = true } = {},
+) {
   const { material, edgeMaterial } = part.userData.part;
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(...position);
   mesh.rotation.set(...rotation);
   mesh.userData.partId = part.userData.part.id;
 
-  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 25), edgeMaterial);
-  mesh.add(edges);
+  if (edges) mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 25), edgeMaterial));
 
   part.add(mesh);
   return mesh;
@@ -66,4 +70,28 @@ export function corners(x, z) {
     [x, -z],
     [-x, -z],
   ];
+}
+
+// Tüm modelin saydamlığı (galeride yandaki tasarımları söndürmek için)
+export function setModelOpacity(root, value) {
+  for (const part of collectParts(root)) {
+    part.userData.part.material.uniforms.uOpacity.value = value;
+    part.userData.part.edgeMaterial.opacity = 0.3 * value;
+  }
+}
+
+// Tüm modeli belirli bir renge boyar (çöpe atarken kırmızımsı). null = normale dön
+export function setModelTint(root, color, amount = 1) {
+  for (const part of collectParts(root)) {
+    const u = part.userData.part.material.uniforms;
+    u.uHighlightColor.value.copy(color ?? HOLO_ORANGE);
+    u.uHighlight.value = color ? amount : part.userData.part.highlight;
+  }
+}
+
+// Modeli verilen boyuta sığdıracak ölçeği döndürür
+export function fitScale(root, targetSize) {
+  const box = new THREE.Box3().setFromObject(root);
+  const size = box.getSize(new THREE.Vector3());
+  return targetSize / Math.max(size.x, size.y, size.z, 1e-6);
 }

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 // Fare / dokunma yedeği: parçayı sürükleyerek çıkarma. Döndürme ve yakınlaştırma OrbitControls'ta.
-export function createMouseControls({ canvas, camera, grab, orbit, ring, getPart }) {
+export function createMouseControls({ canvas, camera, grab, orbit, ring, getPart, isActive }) {
   const world = new THREE.Vector3();
   const ndc = new THREE.Vector3();
   let active = null; // { id, depth }
@@ -16,7 +16,7 @@ export function createMouseControls({ canvas, camera, grab, orbit, ring, getPart
   }
 
   canvas.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || !isActive()) return;
     const id = grab.hoverAt((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
     if (!id) return;
     const depth = grab.depthOf(id);

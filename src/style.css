@@ -136,3 +136,82 @@ body {
 .hud-gesture.visible {
   opacity: 0.95;
 }
+
+/* Galeri: seçili tasarımın adı */
+.gallery-name {
+  position: fixed;
+  left: 50%;
+  bottom: 14%;
+  transform: translateX(-50%);
+  font-size: 15px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  text-shadow: 0 0 12px var(--cyan);
+  opacity: 0;
+  transition: opacity 0.4s;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.gallery-name.visible {
+  opacity: 0.9;
+}
+.gallery-name small {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.25em;
+  opacity: 0.55;
+  margin-top: 6px;
+}
+
+/* Sürükle-bırak kaplaması */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  letter-spacing: 0.25em;
+  background: rgba(2, 6, 12, 0.6);
+  border: 1px dashed rgba(56, 232, 255, 0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+.drop-overlay.visible {
+  opacity: 1;
+}
+
+/* Geri al halkası (silme sonrası 5 sn) */
+.undo-ring {
+  position: fixed;
+  right: 26px;
+  bottom: 150px;
+  width: 64px;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+.undo-ring.visible {
+  opacity: 0.95;
+}
+.undo-ring svg {
+  width: 48px;
+  height: 48px;
+  transform: rotate(-90deg);
+}
+.undo-ring circle {
+  fill: none;
+  stroke-width: 2;
+}
+.undo-ring .track {
+  stroke: rgba(56, 232, 255, 0.2);
+}
+.undo-ring .fill {
+  stroke: #ffb347;
+  filter: drop-shadow(0 0 4px #ffb347);
+}

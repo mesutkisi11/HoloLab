@@ -48,7 +48,7 @@ const fragmentShader = /* glsl */ `
 
     vec3 color = mix(uColor, uHighlightColor, uHighlight);
     float alpha = (0.05 + fresnel * 0.5) * uOpacity * scan;
-    vec3 rgb = color * (0.3 + fresnel * 0.5 + uHighlight * 0.6 + uFlash * 2.0);
+    vec3 rgb = color * (0.3 + fresnel * 0.5 + uHighlight * 0.6 + uFlash * 1.2);
 
     // Final dalgası: uWave yüksekliğinden geçen ince parlak bant
     float wave = exp(-pow((vWorldPos.y - uWave) * 14.0, 2.0));
