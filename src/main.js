@@ -10,6 +10,12 @@ import { createChoreography } from './choreo/choreography.js';
 import { generateAutoChoreography } from './choreo/autoChoreo.js';
 import { createTrails } from './choreo/trail.js';
 import { createSlider } from './ui/slider.js';
+import { createHud } from './ui/hud.js';
+import { startCamera } from './hands/camera.js';
+import { createTracker } from './hands/tracker.js';
+import { createHandState } from './hands/handState.js';
+import { createHandVisuals } from './hands/handVisuals.js';
+import { createModelGestures } from './hands/modelGestures.js';
 
 const canvas = document.getElementById('scene');
 const app = createScene(canvas);
@@ -38,6 +44,54 @@ const slider = createSlider((p) => {
   playTarget = null;
   current?.choreo.setProgress(p);
 });
+const hud = createHud();
+
+// --- El takibi ---
+const handVisuals = createHandVisuals(app.scene, app.camera);
+let handInput = null;
+let lastSeen = 0;
+
+const gestures = createModelGestures({
+  getProgress: () => current?.choreo.getProgress() ?? 1,
+  setProgress: (p) => {
+    playTarget = null;
+    current?.choreo.setProgress(p);
+    slider.set(p);
+  },
+  hud,
+  visuals: handVisuals,
+  planeDistance: () => app.camera.position.distanceTo(controls.target),
+});
+
+async function initHands() {
+  hud.setStatus('El takibi yükleniyor…');
+  try {
+    const [video, tracker] = await Promise.all([startCamera(), createTracker()]);
+    handInput = { video, tracker, state: createHandState() };
+    hud.setStatus('Elini kameraya göster');
+  } catch (err) {
+    console.warn('El takibi başlatılamadı, fare ile devam:', err);
+    hud.setStatus('Kamera yok · fare ile kontrol');
+    setTimeout(() => hud.setStatus(''), 3000);
+  }
+}
+initHands();
+
+function updateHands(dt, time) {
+  if (!handInput) return;
+  const result = handInput.tracker.detect(handInput.video);
+  const { hands, tracking } = handInput.state.analyze(result, time, dt);
+  handVisuals.update(hands, app.camera.position.distanceTo(controls.target));
+
+  if (tracking) {
+    lastSeen = time;
+    hud.setStatus('');
+    controls.autoRotate = false;
+  } else if (time - lastSeen > 2) {
+    hud.setStatus('Elini kameraya göster');
+  }
+  gestures.update(hands, dt, time);
+}
 
 async function loadChoreography(def, root, parts) {
   if (def.choreo) {
@@ -101,10 +155,11 @@ window.addEventListener('pointermove', (e) => {
 const modelBox = new THREE.Box3();
 const spinAxis = new THREE.Vector3();
 
-app.onUpdate((dt) => {
+app.onUpdate((dt, time) => {
   controls.update();
   ring.update(dt);
   if (!current) return;
+  updateHands(dt, time);
   const { choreo, parts, trails, root } = current;
 
   // Otomatik oynatma: progress hedefe doğru sabit hızla ilerler

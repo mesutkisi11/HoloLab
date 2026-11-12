@@ -89,3 +89,50 @@ body {
   background: var(--cyan);
   box-shadow: 0 0 10px var(--cyan);
 }
+
+/* Köşedeki aynalanmış kamera önizlemesi */
+.cam-preview {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  width: 160px;
+  border: 1px solid rgba(56, 232, 255, 0.4);
+  border-radius: 4px;
+  opacity: 0.75;
+  transform: scaleX(-1);
+  pointer-events: none;
+  box-shadow: 0 0 12px rgba(56, 232, 255, 0.25);
+}
+
+.hud-status {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  opacity: 0;
+  transition: opacity 0.4s;
+  text-shadow: 0 0 8px var(--cyan);
+  pointer-events: none;
+}
+.hud-status.visible {
+  opacity: 0.85;
+}
+
+.hud-gesture {
+  position: fixed;
+  top: 18px;
+  right: 22px;
+  font-size: 12px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #ffb347;
+  opacity: 0;
+  transition: opacity 0.25s;
+  text-shadow: 0 0 10px #ffb347;
+  pointer-events: none;
+}
+.hud-gesture.visible {
+  opacity: 0.95;
+}
