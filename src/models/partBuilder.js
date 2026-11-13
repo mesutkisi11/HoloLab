@@ -130,8 +130,8 @@ function modelDensity(root) {
     if (x.userData.isEdge) edgeVerts += x.geometry.attributes.position.count;
     else if (x.isMesh) tris += (x.geometry.index?.count ?? x.geometry.attributes.position.count) / 3;
   });
-  const fade = (ref, n, k) => THREE.MathUtils.clamp(Math.pow(ref / Math.max(n, 1), k), 0.2, 1);
-  return { surface: fade(60000, tris, 0.7), edges: fade(35000, edgeVerts, 1) };
+  const fade = (ref, n, k) => THREE.MathUtils.clamp(Math.pow(ref / Math.max(n, 1), k), 0.05, 1);
+  return { surface: fade(60000, tris, 0.85), edges: fade(35000, edgeVerts, 1) };
 }
 
 // Parçanın vurgu rengi: 0 = cyan, 1 = turuncu/altın
