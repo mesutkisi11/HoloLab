@@ -32,6 +32,7 @@ export function createChoreography(parts, data) {
         offset: 0,
         float: null,
         locked: false,
+        movedAt: -1,
       });
     }
   }
@@ -44,6 +45,7 @@ export function createChoreography(parts, data) {
   let progress = 1;
   let completed = true;
   let now = 0;
+  let primed = false; // ilk güncellemede olay yayma (yüklenirken yüzlerce "oturdu" sesi/efekti olmasın)
 
   const emit = (name, payload) => {
     for (const fn of listeners.get(name) ?? []) fn(payload);
@@ -59,6 +61,8 @@ export function createChoreography(parts, data) {
       step.s = clamp01((t - step.startTime) / step.duration + step.offset);
       if (step.s < SEATED) allSeated = false;
 
+      if (!primed) step.prevS = step.s;
+      if (step.s !== step.prevS) step.movedAt = now;
       if (step.locked) continue;
 
       if (step.float) {
@@ -83,6 +87,11 @@ export function createChoreography(parts, data) {
       applySettle(step);
     }
 
+    if (!primed) {
+      primed = true;
+      completed = allSeated;
+      return;
+    }
     if (allSeated && !completed) {
       completed = true;
       emit('complete');
@@ -116,7 +125,7 @@ export function createChoreography(parts, data) {
     // Parça şu an hareket ediyor mu? (vurgu rengi için)
     isMoving(partId) {
       const st = stepById.get(partId);
-      return !!st && (st.locked || (st.s > 0.001 && st.s < SEATED));
+      return !!st && (st.locked || now - st.movedAt < 0.12);
     },
     // Parçayı "oturdu" olarak işaretle (elle yerine takıldı)
     markSeated(id) {

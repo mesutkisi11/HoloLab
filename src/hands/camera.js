@@ -8,8 +8,14 @@ export async function startCamera() {
   document.body.appendChild(video);
 
   // getUserMedia: tarayıcıdan kamera izni ister. HTTPS veya localhost gerekir.
+  // Yüksek kare hızı istemek kameranın kendi gecikmesini azaltır (destekliyorsa 60 FPS).
   const stream = await navigator.mediaDevices.getUserMedia({
-    video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+    video: {
+      width: { ideal: 640 },
+      height: { ideal: 480 },
+      frameRate: { ideal: 60, max: 60 },
+      facingMode: 'user',
+    },
     audio: false,
   });
   video.srcObject = stream;

@@ -1,39 +1,64 @@
 import { demoModels } from '../models/index.js';
 import { designDb } from './db.js';
-import { buildFromGlb } from './loadGlb.js';
+import { formatLabel } from './formats.js';
+
+// Yükleyiciler (GLTF, FBX, STEP...) büyük; sadece ilk yüklenen tasarım açılınca indirilir
+const loaders = () => import('./loaders.js');
 
 // Galerideki tüm tasarımlar: demo modeller + IndexedDB'deki yüklemeler.
-// Her tasarım: { id, name, isDemo, build(): Promise<Group>, choreoData?, choreo? }
+// Her tasarım: { id, name, isDemo, format, build(): Promise<Group>, choreoData?, choreo? }
 export function createDesignRegistry() {
   let designs = [];
+  const records = new Map();
+
+  function toDesign(record) {
+    return {
+      id: record.id,
+      name: record.name,
+      isDemo: false,
+      format: formatLabel(record),
+      choreoData: record.choreo ?? null,
+      build: async () => {
+        const hadCad = !!record.cad;
+        const { buildDesign } = await loaders();
+        const root = await buildDesign(record);
+        // CAD dosyası ilk kez okunduysa sonucu sakla: bir sonraki açılış anında olur
+        if (!hadCad && record.cad) designDb.put(record).catch(() => {});
+        return root;
+      },
+    };
+  }
 
   async function refresh() {
     const stored = await designDb.list();
-    const uploaded = stored
-      .sort((a, b) => a.createdAt - b.createdAt)
-      .map((d) => ({
-        id: d.id,
-        name: d.name,
-        isDemo: false,
-        choreoData: d.choreo ?? null,
-        build: () => buildFromGlb(d.buffer, d.name),
-      }));
-    designs = [...demoModels.map((m) => ({ ...m, build: async () => m.build() })), ...uploaded];
+    records.clear();
+    for (const r of stored) records.set(r.id, r);
+    const uploaded = stored.sort((a, b) => a.createdAt - b.createdAt).map(toDesign);
+    designs = [
+      ...demoModels.map((m) => ({ ...m, format: 'DEMO', build: async () => m.build() })),
+      ...uploaded,
+    ];
     return designs;
   }
 
-  async function addFile(file) {
-    const buffer = await file.arrayBuffer();
-    const design = {
-      id: `upl_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      name: file.name.replace(/\.(glb|gltf)$/i, ''),
-      buffer,
-      createdAt: Date.now(),
-      choreo: null,
-    };
-    await designDb.put(design);
+  // Bırakılan / seçilen dosyalar: her tasarım için bir kayıt; yeni kimlikleri döndürür
+  async function addFiles(fileList) {
+    const { groupIntoDesigns } = await loaders();
+    const groups = await groupIntoDesigns(fileList);
+    const ids = [];
+    for (const g of groups) {
+      const record = {
+        id: `upl_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        name: g.name,
+        files: g.files,
+        createdAt: Date.now(),
+        choreo: null,
+      };
+      await designDb.put(record);
+      ids.push(record.id);
+    }
     await refresh();
-    return design.id;
+    return ids;
   }
 
   async function remove(id) {
@@ -53,7 +78,7 @@ export function createDesignRegistry() {
 
   return {
     refresh,
-    addFile,
+    addFiles,
     remove,
     attachChoreo,
     get list() {

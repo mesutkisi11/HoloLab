@@ -8,14 +8,15 @@ const GALLERY = [
   ['fist', 'Avucunu kapat (kısa)', 'seçili tasarımı aç'],
   ['hold', 'Avucunu kapat ve tut, çöpe savur', 'tasarımı sil'],
   ['pull', 'Açık eli kendine çek (5 sn içinde)', 'silmeyi geri al'],
+  ['add', 'En sondaki + yuvasına tıkla, U tuşuna bas ya da dosyayı pencereye sürükle', 'tasarım ekle · GLB GLTF OBJ STL FBX STEP IGES'],
 ];
 
 const MODEL = [
   ['pinch2', 'Başparmak + işaret birleştir, aç / kapat', 'bir katmanı sök / tak'],
   ['pinch3', 'Başparmak + işaret + orta birleştir, aç / kapat', 'tümünü sök / tak'],
   ['grab', 'Parça üstünde pinch yapıp çek', 'parçayı çıkar; bırakınca oturur'],
-  ['point', 'İşaret parmağını sökülmüş parçada tut', 'parçayı yakından göster'],
-  ['drag', 'Açık elle yavaş sürükle', 'döndür'],
+  ['point', 'İşaret parmağını sökülmüş parçada tut', 'parçayı ölçüleriyle yakından incele'],
+  ['drag', 'Açık elle sürükle, savurup bırak', 'döndür (savurunca dönmeye devam eder)'],
   ['swipe', 'Açık elle hızlı sağa / sola', 'sonraki / önceki adım'],
   ['push', 'Avucu hızla öne it', 'patlat (exploded view)'],
   ['zoom', 'İki elle pinch, ellerini aç / kapat', 'yakınlaştır'],
@@ -24,7 +25,7 @@ const MODEL = [
   ['up', 'Açık elle yukarı kaydır', 'galeriye dön'],
 ];
 
-const KEYS = 'Klavye: Esc galeri · Space oynat · E sök · A birleştir · ← → adım · S ses · C sinematik · V dikey/yatay · J koreografi JSON · Del sil · ? rehber';
+const KEYS = 'Klavye: U tasarım yükle · Esc galeri · Enter aç · Space oynat · E sök · A birleştir · ← → adım · S ses · B görüntü kalitesi · C sinematik · V dikey/yatay · J koreografi JSON · Del sil · ? rehber';
 
 export function createGuide() {
   const overlay = document.createElement('div');
@@ -32,7 +33,7 @@ export function createGuide() {
   overlay.innerHTML = `
     <div class="guide-card">
       <div class="guide-title">Elini kameraya göster</div>
-      <div class="guide-sub">HoloLab eller ile kontrol edilir. Avucu kapatmak her yerde "tut / seç" demektir.</div>
+      <div class="guide-sub">HoloLab eller ile kontrol edilir. Avucu kapatmak her yerde "tut / seç" demektir. Ellerin kamerada belli olsun, iyi ışık algılamayı hızlandırır.</div>
       <div class="guide-cols">
         <div><div class="guide-head">Galeri</div>${rows(GALLERY)}</div>
         <div><div class="guide-head">Model</div>${rows(MODEL)}</div>

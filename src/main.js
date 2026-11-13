@@ -1,11 +1,14 @@
 import * as THREE from 'three';
+import { acceleratedRaycast } from 'three-mesh-bvh';
 import { createScene } from './scene/createScene.js';
+import { createEnvironment } from './scene/environment.js';
+import { sharedFocus } from './scene/hologramMaterial.js';
 import { createHud } from './ui/hud.js';
 import { startCamera } from './hands/camera.js';
 import { createTracker } from './hands/tracker.js';
 import { createHandState } from './hands/handState.js';
 import { createHandVisuals } from './hands/handVisuals.js';
-import { createModelScreen, MODEL_VIEW } from './screens/modelScreen.js';
+import { createModelScreen } from './screens/modelScreen.js';
 import { createGalleryScreen, GALLERY_CENTER } from './screens/galleryScreen.js';
 import { createDesignRegistry } from './gallery/designs.js';
 import { createDropZone } from './gallery/dropZone.js';
@@ -14,20 +17,34 @@ import { createSounds } from './audio/sounds.js';
 import { createGuide } from './ui/guide.js';
 import { createCinematic } from './ui/cinematic.js';
 
+// Büyük yüklenen modellerde ışın testini hızlandır (BVH varsa kullanır, yoksa normal yöntem)
+THREE.Mesh.prototype.raycast = acceleratedRaycast;
+
 const canvas = document.getElementById('scene');
 const app = createScene(canvas);
 app.canvas = canvas;
 
+const env = createEnvironment(app.scene, app.tierSettings());
 const hud = createHud();
 const sounds = createSounds();
 const guide = createGuide();
 const handVisuals = createHandVisuals(app.scene, app.camera);
 const registry = createDesignRegistry();
 
-// Kamera görünümleri: galeri ve model için ayrı; geçişte yumuşakça kayar
-const GALLERY_VIEW = { position: new THREE.Vector3(0, 0.5, 1.7), target: GALLERY_CENTER.clone() };
-let cameraGoal = GALLERY_VIEW;
+app.onQualityChange((tier, settings) => {
+  env.setTier(settings);
+  hud.showGesture(settings.label);
+});
+
+// Galeri kamerası: model ekranında kamerayı model ekranı yönetir
+const GALLERY_VIEW = { position: new THREE.Vector3(0, 0.52, 1.75), target: GALLERY_CENTER.clone() };
 let cameraMoving = true;
+
+// Galeri modunda ortam: halkalar kapalı, tarama seçili önizleme boyutunda
+function galleryEnv() {
+  env.setGyroVisible(false);
+  env.setModelBounds(new THREE.Box3(new THREE.Vector3(-0.3, 0.08, -0.3), new THREE.Vector3(0.3, 0.68, 0.3)));
+}
 
 // --- Ekranlar ---
 let state = 'gallery'; // 'gallery' | 'model' | 'transition'
@@ -50,6 +67,8 @@ function onGrabRelease(def, velocity, hand, handle) {
     return;
   }
   handle.freeze?.();
+  app.glitch(0.4);
+  setTimeout(() => app.glitch(0), 160);
   if (def.isDemo) {
     trash.throwIn(handle.root, { demo: true, onBounce: () => handle.returnHome() });
     return;
@@ -63,7 +82,7 @@ async function startPendingDelete(def) {
   gallery.setPendingHide(def.id);
   if (state === 'model') {
     modelScreen.closeImmediate();
-    cameraGoal = GALLERY_VIEW;
+    galleryEnv();
     cameraMoving = true;
     state = 'gallery';
   }
@@ -87,9 +106,31 @@ const modelScreen = createModelScreen(app, {
   hud,
   handVisuals,
   sounds,
+  env,
   onBackToGallery: backToGallery,
   onGrabStart,
   onGrabRelease,
+});
+
+const drop = createDropZone({
+  hud,
+  onModels: async (files) => {
+    const ids = await registry.addFiles(files);
+    if (!ids.length) return hud.showGesture('Model dosyası bulunamadı');
+    if (state === 'model') await backToGallery();
+    await gallery.rebuild(ids[0]);
+    hud.showGesture(ids.length > 1 ? `${ids.length} tasarım eklendi` : 'Tasarım eklendi');
+  },
+  onChoreo: async (json) => {
+    const def = state === 'model' ? modelScreen.current?.def : gallery.selected()?.design;
+    if (!def || def.isDemo) return hud.showGesture('Önce yüklenen bir tasarım seç');
+    await registry.attachChoreo(def.id, json);
+    hud.showGesture('Koreografi yüklendi');
+    if (state === 'model') {
+      await modelScreen.load(registry.byId(def.id), { startProgress: 0 });
+      modelScreen.playTo(1);
+    }
+  },
 });
 
 const gallery = createGalleryScreen(app, {
@@ -98,6 +139,7 @@ const gallery = createGalleryScreen(app, {
   sounds,
   registry,
   onOpen: openDesign,
+  onAdd: () => drop.openPicker(),
   onGrabStart,
   onGrabRelease,
 });
@@ -105,50 +147,42 @@ const gallery = createGalleryScreen(app, {
 async function openDesign(def) {
   state = 'transition';
   gallery.setVisible(false);
-  cameraGoal = MODEL_VIEW;
-  cameraMoving = true;
-  await modelScreen.open(def);
-  state = 'model';
+  cameraMoving = false;
+  try {
+    await modelScreen.open(def);
+    state = 'model';
+  } catch (err) {
+    console.warn('Tasarım açılamadı:', err);
+    hud.showGesture('Tasarım açılamadı');
+    modelScreen.closeImmediate();
+    galleryEnv();
+    gallery.setVisible(true);
+    cameraMoving = true;
+    state = 'gallery';
+  }
 }
 
 async function backToGallery() {
   if (state !== 'model') return;
   state = 'transition';
+  if (cinematic.isOn()) cinematic.toggle();
   await modelScreen.close();
+  galleryEnv();
   gallery.setVisible(true);
-  cameraGoal = GALLERY_VIEW;
   cameraMoving = true;
   state = 'gallery';
 }
 
-createDropZone({
-  hud,
-  onModel: async (file) => {
-    const id = await registry.addFile(file);
-    await gallery.rebuild(id);
-    if (state === 'model') await backToGallery();
-  },
-  onChoreo: async (json) => {
-    const def = state === 'model' ? modelScreen.current?.def : gallery.selected()?.design;
-    if (!def || def.isDemo) return hud.showGesture('Önce yüklenen bir tasarım seç');
-    await registry.attachChoreo(def.id, json);
-    hud.showGesture('Koreografi yüklendi');
-    if (state === 'model') await modelScreen.load(registry.byId(def.id), { startProgress: 0 }).then(() => modelScreen.playTo(1));
-  },
-});
+const cinematic = createCinematic(app, modelScreen);
 
 // --- Başlangıç ---
 (async () => {
   await registry.refresh();
   await gallery.rebuild();
-  modelScreen.setActive(false);
   // Test için: ?model=N doğrudan N. tasarımı açar
   const direct = new URLSearchParams(location.search).get('model');
   if (direct !== null && registry.list[Number(direct)]) openDesign(registry.list[Number(direct)]);
 })();
-
-const cinematic = createCinematic(app, modelScreen);
-app.onQualityChange((level) => level === 'low' && hud.showGesture('Performans modu (B: geri al)'));
 
 // Koreografiyi JSON dosyası olarak indir (elle düzenleyip sürükle-bırak ile geri yüklenebilir)
 function downloadChoreo() {
@@ -165,11 +199,9 @@ function downloadChoreo() {
 
 window.addEventListener('keydown', (e) => {
   const key = e.key.toLowerCase();
+  if (key === 'u') return drop.openPicker();
   if (key === 's') return hud.showGesture(sounds.toggle() ? 'Ses açık' : 'Ses kapalı');
-  if (key === 'b') {
-    app.setQuality(app.isLowQuality() ? 'high' : 'low');
-    return hud.showGesture(app.isLowQuality() ? 'Performans modu' : 'Tam kalite');
-  }
+  if (key === 'b') return app.cycleTier();
   if (key === 'c' && state === 'model') return cinematic.toggle();
   if (key === 'v' && state === 'model') return cinematic.toggleAspect();
   if (key === 'j' && state === 'model') return downloadChoreo();
@@ -184,12 +216,15 @@ window.addEventListener('keydown', (e) => {
 
 // --- El takibi ---
 let handInput = null;
-let lastSeen = 0;
+let lastSeen = -10;
+let lastSeq = -1;
+let frameHands = { hands: [], tracking: false };
 
 async function initHands() {
   hud.setStatus('El takibi yükleniyor…');
   try {
-    const [video, tracker] = await Promise.all([startCamera(), createTracker()]);
+    const video = await startCamera();
+    const tracker = await createTracker(video);
     handInput = { video, tracker, state: createHandState() };
     hud.setStatus('Elini kameraya göster');
   } catch (err) {
@@ -202,10 +237,15 @@ initHands();
 
 function updateHands(dt, time) {
   if (!handInput) return;
-  const result = handInput.tracker.detect(handInput.video);
-  const { hands, tracking } = handInput.state.analyze(result, time, dt);
+  // Sadece yeni bir algılama sonucu geldiyse eli yeniden çözümle
+  const result = handInput.tracker.latest();
+  if (result && result.seq !== lastSeq) {
+    lastSeq = result.seq;
+    frameHands = handInput.state.analyze(result, result.ts / 1000);
+  }
+  const { hands, tracking } = frameHands;
   const planeDistance = app.camera.position.distanceTo(state === 'model' ? modelScreen.orbit.target : GALLERY_CENTER);
-  handVisuals.update(hands, planeDistance);
+  handVisuals.update(hands, planeDistance, dt);
 
   if (tracking) {
     lastSeen = time;
@@ -215,9 +255,9 @@ function updateHands(dt, time) {
   } else if (time - lastSeen > 2) {
     hud.setStatus('Elini kameraya göster');
   }
-  // Geri al: silme sonrası 5 sn içinde açık eli kendine doğru çek (el küçülür)
+  // Geri al: silme sonrası 5 sn içinde açık eli kendine doğru çek (el kameradan uzaklaşır, görüntüde küçülür)
   const h = hands[0];
-  if (trash.hasPendingUndo() && h?.isOpen && h.sizeVelocity / Math.max(h.size, 1e-3) < -1.2) {
+  if (trash.hasPendingUndo() && h?.isOpen && h.sizeVelocity / Math.max(h.size, 1e-3) < -1.0) {
     trash.triggerUndo();
     return;
   }
@@ -227,22 +267,51 @@ function updateHands(dt, time) {
 }
 
 function updateCamera(dt) {
-  if (!cameraMoving) return;
-  app.camera.position.x = THREE.MathUtils.damp(app.camera.position.x, cameraGoal.position.x, 4, dt);
-  app.camera.position.y = THREE.MathUtils.damp(app.camera.position.y, cameraGoal.position.y, 4, dt);
-  app.camera.position.z = THREE.MathUtils.damp(app.camera.position.z, cameraGoal.position.z, 4, dt);
-  modelScreen.orbit.target.lerp(cameraGoal.target, 1 - Math.exp(-4 * dt));
+  const target = state === 'model' || state === 'transition' ? modelScreen.orbit.target : GALLERY_CENTER;
+  sharedFocus.value = app.camera.position.distanceTo(target);
+  if (!cameraMoving || state === 'model') return;
+  const k = 1 - Math.exp(-4 * dt);
+  app.camera.position.lerp(GALLERY_VIEW.position, k);
+  modelScreen.orbit.target.lerp(GALLERY_VIEW.target, k);
   app.camera.lookAt(modelScreen.orbit.target);
-  if (app.camera.position.distanceTo(cameraGoal.position) < 0.005) cameraMoving = false;
+  if (app.camera.position.distanceTo(GALLERY_VIEW.position) < 0.003) cameraMoving = false;
+}
+
+// Sağ alttaki küçük telemetri: saniyede 4 kez güncellenir
+let telemetryTimer = 0;
+function updateTelemetry(dt) {
+  telemetryTimer -= dt;
+  if (telemetryTimer > 0) return;
+  telemetryTimer = 0.25;
+  const rows = [
+    ['FPS', String(Math.round(app.fps))],
+    ['GÖRÜNTÜ', app.tierSettings().label.toUpperCase()],
+  ];
+  if (handInput) {
+    const t = handInput.tracker;
+    rows.push(['EL', `${t.mode === 'worker' ? 'AYRI İŞ PARÇ.' : 'ANA İŞ PARÇ.'} · ${t.delegate} · ${Math.round(t.inferMs)} ms`]);
+  } else rows.push(['EL', 'KAPALI']);
+  const stats = modelScreen.stats();
+  if (state === 'model' && stats) {
+    rows.push(['PARÇA', String(stats.parts)]);
+    rows.push(['MONTAJ', `${Math.round(stats.progress * 100)}%`]);
+  } else {
+    rows.push(['TASARIM', String(registry.list.length)]);
+  }
+  hud.setTelemetry(rows);
 }
 
 app.onUpdate((dt, time) => {
   updateHands(dt, time);
   updateCamera(dt);
+  env.update(dt, time);
   gallery.update(dt, time);
   modelScreen.update(dt, time);
   cinematic.update(dt);
   trash.update(dt);
+  updateTelemetry(dt);
 });
+
+galleryEnv();
 
 app.start();

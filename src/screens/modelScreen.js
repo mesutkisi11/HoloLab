@@ -1,10 +1,16 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { createHologramRing } from '../scene/hologramRing.js';
 import { createGhost } from '../scene/ghost.js';
 import { createTargetRing } from '../scene/targetRing.js';
+import { createAssemblyFx } from '../scene/assemblyFx.js';
 import { sharedWave } from '../scene/hologramMaterial.js';
-import { collectParts, setPartHighlight } from '../models/partBuilder.js';
+import {
+  collectParts,
+  setPartHighlight,
+  setPartOpacity,
+  bindModelUniforms,
+  partBounds,
+} from '../models/partBuilder.js';
 import { createChoreography } from '../choreo/choreography.js';
 import { generateAutoChoreography } from '../choreo/autoChoreo.js';
 import { createTrails } from '../choreo/trail.js';
@@ -12,50 +18,60 @@ import { createPartGrab } from '../interaction/partGrab.js';
 import { createMouseControls } from '../interaction/mouseControls.js';
 import { createModelGestures } from '../hands/modelGestures.js';
 import { createSlider } from '../ui/slider.js';
+import { createFocusAnnotations } from '../ui/focusAnnotations.js';
+import { easeInOutCubic } from '../choreo/easing.js';
 
-export const MODEL_VIEW = { position: new THREE.Vector3(1.1, 0.7, 1.3), target: new THREE.Vector3(0, 0.2, 0) };
+const STAGE_Y = 0.28;
+// Açılışta kameranın modele baktığı yön (3/4 açı, hafif yukarıdan)
+const VIEW_DIR = new THREE.Vector3(0.62, 0.42, 0.66).normalize();
 
 // Model ekranı: tek bir modelin sökülüp birleştirildiği sahne.
-export function createModelScreen(app, { hud, handVisuals, sounds, onBackToGallery, onGrabStart, onGrabRelease }) {
+export function createModelScreen(app, { hud, handVisuals, sounds, env, onBackToGallery, onGrabStart, onGrabRelease }) {
   const { scene, camera, canvas } = app;
 
   const orbit = new OrbitControls(camera, canvas);
-  orbit.target.copy(MODEL_VIEW.target);
+  orbit.target.set(0, STAGE_Y, 0);
   orbit.enableDamping = true;
+  orbit.dampingFactor = 0.08;
   orbit.autoRotate = true;
-  orbit.autoRotateSpeed = 0.6;
-  orbit.minDistance = 0.6;
-  orbit.maxDistance = 4;
-
-  const ring = createHologramRing(0.75);
-  scene.add(ring.group);
+  orbit.autoRotateSpeed = 0.5;
+  orbit.minDistance = 0.2;
+  orbit.maxDistance = 6;
+  orbit.enabled = false;
 
   // Model + hayalet "stage" içinde; elle döndürme stage'i çevirir
   const stage = new THREE.Group();
-  stage.position.y = 0.28;
+  stage.position.y = STAGE_Y;
   scene.add(stage);
 
   const targetRing = createTargetRing(scene, camera);
+  const fx = createAssemblyFx(scene, camera);
+  const annotations = createFocusAnnotations(camera, canvas);
   const slider = createSlider((p) => {
     playTarget = null;
     current?.choreo.setProgress(p);
   });
+  slider.show(false);
 
   let current = null;
   let active = false;
   let playTarget = null;
   let playSpeed = 1;
+  let playDelay = 0;
   let slowMo = false;
-  let stageScaleTarget = 1;
   let closing = null;
   let grabbedModel = null; // { origin } kavranmış model (çöp için)
   let frozen = false; // çöp animasyonu sırasında sahne dokunulmaz
-  let focus = null; // { id, savedTarget, savedPos } yakından gösterilen parça
-  const camGoal = { target: new THREE.Vector3(), position: new THREE.Vector3(), active: false };
-  const modelBox = new THREE.Box3();
+  let focus = null; // { id, savedTarget, savedPos }
+  let reveal = null; // { from, to, t, duration, onDone } belirme/kaybolma animasyonu
+  let cameraLock = false; // sinematik mod kamerayı yönetirken otomatik kadraj kapalı
+  const spin = { x: 0, y: 0 }; // savrulma sonrası dönme hızı (rad/sn)
+  const camGoal = { target: new THREE.Vector3(), position: new THREE.Vector3(), active: false, speed: 5 };
+  const fit = { box: new THREE.Box3(), center: new THREE.Vector3(0, STAGE_Y, 0), radius: 0.4, dist: 1.6, ready: false };
   const spinAxis = new THREE.Vector3();
+  const tmp = new THREE.Vector3();
 
-  const getPart = (id) => current?.parts.find((p) => p.userData.part.id === id) ?? null;
+  const getPart = (id) => current?.byId.get(id) ?? null;
   const grab = createPartGrab({
     get choreo() {
       return current?.choreo;
@@ -65,11 +81,12 @@ export function createModelScreen(app, { hud, handVisuals, sounds, onBackToGalle
     },
     camera,
   });
-  createMouseControls({ canvas, camera, grab, orbit, ring: targetRing, getPart, isActive: () => active });
+  createMouseControls({ canvas, camera, grab, orbit, ring: targetRing, getPart, isActive: () => active && !frozen });
 
-  function playTo(target, speed = 1) {
+  function playTo(target, speed = 1, delay = 0) {
     playTarget = target;
     playSpeed = speed;
+    playDelay = delay;
   }
 
   function stepBy(dir) {
@@ -89,14 +106,27 @@ export function createModelScreen(app, { hud, handVisuals, sounds, onBackToGalle
     },
     playTo,
     stepBy,
-    explode: () => playTo(0, 3),
+    explode() {
+      env.setEnergy(1);
+      app.glitch(0.6);
+      setTimeout(() => app.glitch(0), 140);
+      playTo(0, 3);
+    },
     fullAssemble() {
       current?.choreo.clearOverrides();
+      env.setEnergy(1);
       playTo(1, 1);
     },
     rotate(dx, dy) {
+      spin.x = 0;
+      spin.y = 0;
       stage.rotation.y += dx * 5;
-      stage.rotation.x = THREE.MathUtils.clamp(stage.rotation.x + dy * 3, -0.6, 0.6);
+      stage.rotation.x = THREE.MathUtils.clamp(stage.rotation.x + dy * 3, -0.7, 0.7);
+    },
+    // Bırakılan dönme: elin hızıyla savrulur, sürtünmeyle yavaşlar
+    rotateRelease(vx, vy) {
+      spin.y = THREE.MathUtils.clamp(vx * 5, -8, 8);
+      spin.x = THREE.MathUtils.clamp(vy * 3, -4, 4);
     },
     zoom(factor) {
       const offset = camera.position.clone().sub(orbit.target);
@@ -108,25 +138,25 @@ export function createModelScreen(app, { hud, handVisuals, sounds, onBackToGalle
     backToGallery: () => onBackToGallery?.(),
     // Modeli kavrama (çöpe atmak için)
     grabModel() {
-      if (!current || grabbedModel) return false;
+      if (!current || grabbedModel || reveal) return false;
+      unfocusPart();
       grabbedModel = { origin: stage.position.clone() };
-      stageScaleTarget = 0.85;
       onGrabStart?.(stage);
       return true;
     },
     moveModel(worldPos) {
-      if (grabbedModel) stage.position.copy(worldPos);
+      if (grabbedModel) stage.position.lerp(worldPos, 0.6);
     },
     releaseModel(velocity, hand) {
       if (!grabbedModel) return;
       const origin = grabbedModel.origin;
       grabbedModel = null;
-      stageScaleTarget = 1;
       onGrabRelease?.(current?.def, velocity, hand, {
         root: stage,
         returnHome: () => {
           frozen = false;
           stage.position.copy(origin);
+          stage.scale.setScalar(1);
           stage.visible = true;
         },
         freeze: () => (frozen = true),
@@ -138,7 +168,7 @@ export function createModelScreen(app, { hud, handVisuals, sounds, onBackToGalle
     // Parça sökülmüş mü (yerinde değil)?
     isDetached(id) {
       const st = current?.choreo.getStep(id);
-      return !!st && st.s < 0.999;
+      return !!st && (st.s < 0.999 || !!st.float);
     },
     focus: focusPart,
     unfocus: unfocusPart,
@@ -158,26 +188,24 @@ export function createModelScreen(app, { hud, handVisuals, sounds, onBackToGalle
     gestureCtx.releaseModel({ x: 3, y: 3 }, { palm: { x: 0.9, y: 0.9 } });
   }
 
-  // Parçayı yakından göster: kamera parçaya yaklaşır, diğerleri sönükleşir
+  // --- Parçayı yakından incele: kamera yaklaşır, diğerleri söner, ölçü çizgileri çıkar ---
   function focusPart(id) {
     const part = getPart(id);
     if (!part || !current) return;
     if (!focus) focus = { savedTarget: orbit.target.clone(), savedPos: camera.position.clone() };
     focus.id = id;
-    const box = new THREE.Box3().setFromObject(part);
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3()).length();
+    const b = current.bounds.get(id);
+    const center = part.localToWorld(b.center.clone());
     const dir = camera.position.clone().sub(orbit.target).normalize();
     camGoal.target.copy(center);
-    camGoal.position.copy(center).addScaledVector(dir, Math.max(0.35, size * 2.6));
+    camGoal.position.copy(center).addScaledVector(dir, Math.max(0.22, b.radius * 3.4));
     camGoal.active = true;
-    for (const p of current.parts) {
-      const u = p.userData.part.material.uniforms;
-      u.uOpacity.value = p === part ? 1 : 0.12;
-      p.userData.part.edgeMaterial.opacity = p === part ? 0.6 : 0.04;
-    }
+    camGoal.speed = 5;
+    for (const p of current.parts) setPartOpacity(p, p === part ? 1 : 0.1);
+    current.ghost.userData.material.uniforms.uOpacity.value = 0.3;
     setPartHighlight(part, 1);
-    hud.showGesture(part.userData.part.name);
+    annotations.show(part, current.root.userData.mmPerUnit ?? 1000);
+    sounds?.click();
   }
 
   function unfocusPart() {
@@ -185,10 +213,10 @@ export function createModelScreen(app, { hud, handVisuals, sounds, onBackToGalle
     camGoal.target.copy(focus.savedTarget);
     camGoal.position.copy(focus.savedPos);
     camGoal.active = true;
-    for (const p of current.parts) {
-      p.userData.part.material.uniforms.uOpacity.value = 1;
-      p.userData.part.edgeMaterial.opacity = 0.3;
-    }
+    camGoal.speed = 5;
+    for (const p of current.parts) setPartOpacity(p, 1);
+    current.ghost.userData.material.uniforms.uOpacity.value = 1;
+    annotations.hide();
     focus = null;
   }
 
@@ -209,48 +237,94 @@ export function createModelScreen(app, { hud, handVisuals, sounds, onBackToGalle
   async function load(def, { startProgress = 1 } = {}) {
     unload();
     const root = await def.build();
-    const ghost = createGhost(root);
+    const shared = bindModelUniforms(root);
+    const ghost = createGhost(root, shared);
     stage.add(root, ghost);
+    stage.updateMatrixWorld(true);
     const parts = collectParts(root);
+    // Her parçanın kendi sınırları (kadraj, bağ çizgileri, inceleme için)
+    const bounds = new Map(parts.map((p) => [p.userData.part.id, partBounds(p)]));
 
     const data = await resolveChoreography(def, root, parts);
     const choreo = createChoreography(parts, data);
     const trails = createTrails(scene, parts);
+    fx.attach(choreo.steps, root);
 
     // Final: tüm parçalar oturunca hologram dalgası + pervane dönüşü
     const finale = { waveT: -1, spinT: -1, spin: data.final?.spin ?? null };
     choreo.on('complete', () => {
       finale.waveT = 0;
       finale.spinT = 0;
+      env.triggerScan();
       sounds?.chime();
     });
-    choreo.on('seated', () => sounds?.click());
+    choreo.on('seated', (step) => {
+      fx.onSeated(step);
+      env.setEnergy(0.6);
+      sounds?.click();
+    });
     choreo.on('unseated', () => sounds?.click());
 
-    current = { def, root, ghost, parts, choreo, trails, finale, data };
+    current = {
+      def,
+      root,
+      ghost,
+      parts,
+      byId: new Map(parts.map((p) => [p.userData.part.id, p])),
+      bounds,
+      shared,
+      choreo,
+      trails,
+      finale,
+      data,
+    };
     const urlProgress = new URLSearchParams(location.search).get('p');
     choreo.setProgress(urlProgress !== null ? Number(urlProgress) : startProgress);
+    choreo.update(0);
     slider.set(choreo.getProgress());
+    computeFit(true);
     document.title = `HoloLab · ${def.name}`;
     return current;
   }
 
-  // Galeriden açılış: küçükten büyür, sökülmüş halden birleşir
+  // Galeriden açılış: sökülmüş halde aşağıdan yukarı belirir, sonra birleşerek kurulur
   async function open(def) {
     setActive(true);
-    stage.scale.setScalar(0.15);
-    stageScaleTarget = 1;
     stage.rotation.set(0, 0, 0);
+    stage.position.set(0, STAGE_Y, 0);
+    stage.scale.setScalar(1);
+    spin.x = spin.y = 0;
     await load(def, { startProgress: 0 });
-    playTo(1, 1);
+    // Kamera: açılış yönünden modele uç
+    camGoal.target.copy(fit.center);
+    camGoal.position.copy(fit.center).addScaledVector(VIEW_DIR, fit.dist);
+    camGoal.active = true;
+    camGoal.speed = 3;
+    startReveal(true, 1.1);
+    env.triggerScan();
+    // Test için ?p=0.5 verilirse o ilerlemede bekle, yoksa birleşerek kurul
+    if (new URLSearchParams(location.search).get('p') === null) playTo(1, 1, 0.9);
   }
 
-  // Galeriye dönüş: küçülüp kaybolur
+  // Galeriye dönüş: yukarıdan aşağı kaybolur
   function close() {
+    unfocusPart();
+    closing = true;
     return new Promise((resolve) => {
-      stageScaleTarget = 0.01;
-      closing = resolve;
+      startReveal(false, 0.55, () => {
+        unload();
+        setActive(false);
+        resolve();
+      });
     });
+  }
+
+  function startReveal(appear, duration, onDone) {
+    if (!current) return onDone?.();
+    const lo = fit.box.min.y - 0.06;
+    const hi = fit.box.max.y + 0.06;
+    reveal = { from: appear ? lo : hi, to: appear ? hi : lo, t: 0, duration, onDone };
+    current.shared.uReveal.value = reveal.from;
   }
 
   // Silme sonrası: animasyonsuz kapat
@@ -258,67 +332,147 @@ export function createModelScreen(app, { hud, handVisuals, sounds, onBackToGalle
     frozen = false;
     unload();
     setActive(false);
-    stage.position.set(0, 0.28, 0);
+    stage.position.set(0, STAGE_Y, 0);
     stage.scale.setScalar(1);
   }
 
   function unload() {
     if (!current) return;
+    annotations.hide();
     focus = null;
+    reveal = null;
     camGoal.active = false;
+    fx.detach();
     stage.remove(current.root, current.ghost);
     current.trails.dispose();
     current = null;
+    closing = null;
   }
 
   function setActive(v) {
     active = v;
     orbit.enabled = v;
-    ring.group.visible = v;
     stage.visible = v;
     slider.show(v);
+    env.setGyroVisible(v);
     if (!v) targetRing.set(null, false);
   }
 
-  function update(dt, time) {
-    if (camGoal.active) {
-      camera.position.lerp(camGoal.position, 1 - Math.exp(-6 * dt));
-      orbit.target.lerp(camGoal.target, 1 - Math.exp(-6 * dt));
-      if (camera.position.distanceTo(camGoal.position) < 0.004) camGoal.active = false;
+  // Tüm parçaların şu anki kapladığı alan -> kadraj mesafesi
+  function computeFit(instant = false) {
+    if (!current) return;
+    const box = fit.box.makeEmpty();
+    for (const part of current.parts) {
+      const b = current.bounds.get(part.userData.part.id);
+      part.localToWorld(tmp.copy(b.center));
+      box.expandByPoint(tmp.clone().addScalar(b.radius));
+      box.expandByPoint(tmp.addScalar(-2 * b.radius));
     }
-    if (active) orbit.update();
-    ring.update(dt);
+    box.min.y = Math.max(box.min.y, 0.02);
+    const center = box.getCenter(new THREE.Vector3());
+    const radius = Math.max(0.12, box.getSize(new THREE.Vector3()).length() * 0.5);
+    const vFov = THREE.MathUtils.degToRad(camera.fov);
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
+    const dist = (radius / Math.sin(Math.min(vFov, hFov) / 2)) * 0.66;
+    if (instant || !fit.ready) {
+      fit.center.copy(center);
+      fit.radius = radius;
+      fit.dist = dist;
+      fit.ready = true;
+    }
+    return { center, radius, dist };
+  }
+
+  // Patlatınca uzaklaş, birleşince yaklaş: kullanıcının yakınlaştırma oranı korunur
+  function autoFrame(dt) {
+    const next = computeFit();
+    if (!next) return;
+    env.setModelBounds(fit.box);
+    if (cameraLock || camGoal.active || focus || grabbedModel || frozen) {
+      fit.center.copy(next.center);
+      fit.radius = next.radius;
+      fit.dist = next.dist;
+      return;
+    }
+    const prevDist = fit.dist;
+    fit.dist = THREE.MathUtils.damp(fit.dist, next.dist, 2.2, dt);
+    fit.radius = next.radius;
+    fit.center.x = THREE.MathUtils.damp(fit.center.x, next.center.x, 2.2, dt);
+    fit.center.y = THREE.MathUtils.damp(fit.center.y, next.center.y, 2.2, dt);
+    fit.center.z = THREE.MathUtils.damp(fit.center.z, next.center.z, 2.2, dt);
+    const ratio = fit.dist / Math.max(prevDist, 1e-4);
+    const offset = camera.position.clone().sub(orbit.target).multiplyScalar(ratio);
+    orbit.target.copy(fit.center);
+    camera.position.copy(fit.center).add(offset);
+  }
+
+  function update(dt, time) {
+    if (!active && !current) return;
+
+    if (camGoal.active) {
+      const k = 1 - Math.exp(-camGoal.speed * dt);
+      camera.position.lerp(camGoal.position, k);
+      orbit.target.lerp(camGoal.target, k);
+      if (camera.position.distanceTo(camGoal.position) < 0.003) camGoal.active = false;
+    }
+    // İnceleme modunda kamera parçanın etrafında yavaşça döner
+    if (focus && !camGoal.active && !cameraLock) {
+      tmp.copy(camera.position).sub(orbit.target).applyAxisAngle(new THREE.Vector3(0, 1, 0), dt * 0.25);
+      camera.position.copy(orbit.target).add(tmp);
+    }
+    if (active && orbit.enabled) orbit.update();
     targetRing.update(dt);
 
-    if (frozen) return;
-    const s = THREE.MathUtils.damp(stage.scale.x, stageScaleTarget, 8, dt);
-    stage.scale.setScalar(s);
-    if (closing && s < 0.03) {
-      const done = closing;
-      closing = null;
-      unload();
-      setActive(false);
-      done();
+    if (frozen || !current) return;
+    const { choreo, parts, trails, root } = current;
+
+    // Belirme / kaybolma
+    if (reveal) {
+      reveal.t += dt / reveal.duration;
+      const e = easeInOutCubic(Math.min(1, reveal.t));
+      current.shared.uReveal.value = THREE.MathUtils.lerp(reveal.from, reveal.to, e);
+      if (reveal.t >= 1) {
+        const done = reveal.onDone;
+        current.shared.uReveal.value = reveal.to > reveal.from ? 1000 : -1000;
+        reveal = null;
+        done?.();
+        if (!current) return;
+      }
     }
 
-    if (!current) return;
-    const { choreo, parts, trails, root } = current;
+    // Savrulan model sürtünmeyle yavaşlar
+    if (spin.x || spin.y) {
+      stage.rotation.y += spin.y * dt;
+      stage.rotation.x = THREE.MathUtils.clamp(stage.rotation.x + spin.x * dt, -0.7, 0.7);
+      const decay = Math.exp(-2.2 * dt);
+      spin.x *= decay;
+      spin.y *= decay;
+      if (Math.abs(spin.x) + Math.abs(spin.y) < 0.01) spin.x = spin.y = 0;
+    }
+    // Kavranan model: hafif küçülür
+    const targetScale = grabbedModel ? 0.85 : 1;
+    stage.scale.setScalar(THREE.MathUtils.damp(stage.scale.x, targetScale, 10, dt));
 
     // Otomatik oynatma: hedefe doğru sabit hızla
     if (playTarget !== null) {
-      const p = choreo.getProgress();
-      const step = (dt / choreo.duration) * playSpeed * (slowMo ? 0.25 : 1);
-      const next = p < playTarget ? Math.min(playTarget, p + step) : Math.max(playTarget, p - step);
-      choreo.setProgress(next);
-      slider.set(next);
-      if (next === playTarget) playTarget = null;
+      if (playDelay > 0) playDelay -= dt;
+      else {
+        const p = choreo.getProgress();
+        const step = (dt / choreo.duration) * playSpeed * (slowMo ? 0.25 : 1);
+        const next = p < playTarget ? Math.min(playTarget, p + step) : Math.max(playTarget, p - step);
+        choreo.setProgress(next);
+        slider.set(next);
+        if (next === playTarget) playTarget = null;
+      }
     }
 
     choreo.update(dt);
     grab.update(dt);
     trails.update(dt, choreo.isMoving);
+    fx.update(dt, focus ? 0.3 : 1);
+    annotations.update();
 
-    // Sesler: hareket varsa vızıltı, dönen vida varsa tıkırtı
+    // Sesler ve ortam enerjisi: hareket varsa vızıltı, dönen vida varsa tıkırtı
     let moving = 0;
     let screwing = false;
     for (const st of choreo.steps) {
@@ -327,6 +481,7 @@ export function createModelScreen(app, { hud, handVisuals, sounds, onBackToGalle
         if (st.screwTurns && st.s !== st.prevS) screwing = true;
       }
     }
+    if (moving) env.setEnergy(Math.min(0.5, moving * 0.08));
     sounds?.hum(active && moving > 0);
     if (screwing) sounds?.tick(time);
 
@@ -340,15 +495,15 @@ export function createModelScreen(app, { hud, handVisuals, sounds, onBackToGalle
     }
 
     updateFinale(dt, root);
+    autoFrame(dt);
   }
 
-  function updateFinale(dt, root) {
+  function updateFinale(dt) {
     const { finale, parts } = current;
     if (finale.waveT >= 0) {
       finale.waveT += dt;
-      modelBox.setFromObject(root);
       const t = finale.waveT / 1.2;
-      sharedWave.value = THREE.MathUtils.lerp(modelBox.min.y - 0.1, modelBox.max.y + 0.1, t);
+      sharedWave.value = THREE.MathUtils.lerp(fit.box.min.y - 0.1, fit.box.max.y + 0.1, t);
       if (t > 1) {
         finale.waveT = -1;
         sharedWave.value = -100;
@@ -370,7 +525,7 @@ export function createModelScreen(app, { hud, handVisuals, sounds, onBackToGalle
   }
 
   function onHands(hands, dt, time, tracking) {
-    if (!active || closing || frozen) return;
+    if (!active || closing || frozen || reveal) return;
     if (tracking) orbit.autoRotate = false;
     gestures.update(hands, dt, time);
   }
@@ -389,10 +544,11 @@ export function createModelScreen(app, { hud, handVisuals, sounds, onBackToGalle
     if (key === 'f') unfocusPart();
   }
 
-  // Fare yedeği: sökülmüş parçaya çift tık = yakından göster, boşluğa çift tık = çık
+  // Fare yedeği: sökülmüş parçaya çift tık = yakından incele, boşluğa çift tık = çık
   canvas.addEventListener('dblclick', (e) => {
     if (!active) return;
-    const id = grab.hoverAt((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+    const rect = canvas.getBoundingClientRect();
+    const id = grab.hoverAt(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
     if (id && gestureCtx.isDetached(id)) focusPart(id);
     else unfocusPart();
   });
@@ -411,6 +567,9 @@ export function createModelScreen(app, { hud, handVisuals, sounds, onBackToGalle
     onKey,
     setActive,
     playTo,
+    setCameraLock: (v) => (cameraLock = v),
+    getFit: () => fit,
+    stats: () => (current ? { parts: current.parts.length, progress: current.choreo.getProgress() } : null),
     stage,
     orbit,
     isActive: () => active,

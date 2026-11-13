@@ -2,12 +2,12 @@ import * as THREE from 'three';
 
 // Galeri ekranı el hareketleri:
 //   açık elle sağa/sola kaydır   -> tasarımlar arasında gez (yavaş = sürükle, hızlı = birkaç tane atla)
-//   kısa yumruk (< 0.4 sn)       -> seçili tasarımı aç
-//   yumruk tut (>= 0.4 sn)       -> tasarımı kavra (çöpe atmak için), açınca bırak
+//   kısa yumruk (< 0.35 sn)      -> seçili tasarımı aç
+//   yumruk tut (>= 0.35 sn)      -> tasarımı kavra (çöpe atmak için), açınca bırak
 //   açık elle kendine çek        -> geri al (silme sonrası 5 sn; trash modülü dinler)
 
 const DRAG_GAIN = 4; // ekranın çeyreği kadar hareket = bir tasarım
-const HOLD_TIME = 0.4;
+const HOLD_TIME = 0.35;
 
 export function createGalleryGestures(ctx) {
   let drag = null;

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { createPart, addMesh, setModelOpacity } from '../models/partBuilder.js';
-import { HOLO_CYAN, HOLO_ORANGE, HOLO_RED } from '../scene/hologramMaterial.js';
+import { createPart, addMesh, setModelOpacity, setModelTint } from '../models/partBuilder.js';
+import { HOLO_CYAN, HOLO_RED } from '../scene/hologramMaterial.js';
 import { clamp01, easeInCubic, easeOutCubic } from '../choreo/easing.js';
 
 const UNDO_SECONDS = 5;
@@ -231,13 +231,9 @@ export function createTrashBin(app, { hud, sounds }) {
     }
   }
 
-  // Kavranmış modeli kırmızımsı boya
+  // Kavranmış modeli kırmızımsı boya (yüzey + çizgiler)
   function tintGrabbed(root, on) {
-    for (const part of collectPartsSafe(root)) {
-      const u = part.userData.part.material.uniforms;
-      u.uHighlightColor.value.copy(on ? HOLO_RED : HOLO_ORANGE);
-      u.uHighlight.value = on ? 0.85 : 0;
-    }
+    setModelTint(root, on ? HOLO_RED : null, 0.85);
     if (!on) setModelOpacity(root, 1);
   }
 
@@ -253,10 +249,4 @@ export function createTrashBin(app, { hud, sounds }) {
     hasPendingUndo: () => !!undo,
     isAnimating: () => !!anim,
   };
-}
-
-function collectPartsSafe(root) {
-  const parts = [];
-  root.traverse((o) => o.userData.part && parts.push(o));
-  return parts;
 }

@@ -14,6 +14,7 @@ const THROW_SPEED = 1.2; // dünya birimi/sn üstü = fırlatma
 export function createPartGrab(deps) {
   const { camera } = deps;
   const raycaster = new THREE.Raycaster();
+  raycaster.firstHitOnly = true; // BVH: ilk çarpmada dur
   const ndc = new THREE.Vector2();
 
   let grab = null; // aktif tutma

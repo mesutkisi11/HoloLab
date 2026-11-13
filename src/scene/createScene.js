@@ -4,79 +4,118 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { sharedTime } from './hologramMaterial.js';
+import { createPostPass } from './postPass.js';
+import { TIERS, TIER_ORDER, detectTier, saveTier, createFrameMonitor } from './quality.js';
 
-// Renderer + kamera + bloom efekti. Tüm uygulama bu sahneyi kullanır.
+// Renderer + kamera + efekt zinciri. Efekt zinciri kalite seviyesine göre kurulur:
+// RenderPass (MSAA'lı) -> Bloom -> OutputPass (renk dönüşümü) -> son görüntü geçişi
 export function createScene(canvas) {
   const renderer = new THREE.WebGLRenderer({
     canvas,
-    antialias: true,
+    antialias: false, // kenar yumuşatmayı efekt zincirinin MSAA hedefi yapıyor
     powerPreference: 'high-performance',
   });
-  // Orta seviye laptopta akıcı kalsın diye piksel oranını sınırlıyoruz
-  renderer.setPixelRatio(1);
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMapping = THREE.NeutralToneMapping;
   renderer.toneMappingExposure = 1.0;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#02060c');
+  scene.background = new THREE.Color('#010409');
 
-  const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.05, 50);
-  camera.position.set(1.1, 0.7, 1.3);
-  camera.lookAt(0, 0.05, 0);
+  const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.02, 60);
+  camera.position.set(0.95, 0.62, 1.15);
+  camera.lookAt(0, 0.28, 0);
 
-  // Bloom: parlak yerlerin etrafına ışık taşması. Hologram hissinin yarısı budur.
-  const composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(
-    new THREE.Vector2(window.innerWidth / 4, window.innerHeight / 4),
-    0.45, // güç
-    0.4, // yarıçap
-    0.35, // eşik: bundan parlak pikseller taşar
-  );
-  composer.addPass(bloom);
-  composer.addPass(new OutputPass());
-
-  const clock = new THREE.Clock();
-  const updaters = new Set();
-
-  // Otomatik performans modu: kareler uzun sürerse bloom kapanır
-  let slowFrames = 0;
-  let lowQuality = false;
-  const qualityListeners = new Set();
-  function watchPerformance(dt) {
-    if (lowQuality) return;
-    slowFrames = dt > 0.034 ? slowFrames + 1 : Math.max(0, slowFrames - 2);
-    if (slowFrames > 90) setQuality('low');
-  }
-  function setQuality(level) {
-    lowQuality = level === 'low';
-    bloom.enabled = !lowQuality;
-    for (const fn of qualityListeners) fn(level);
-  }
-
+  let tier = detectTier(renderer);
+  let composer = null;
+  let bloom = null;
+  let post = null;
   let aspectOverride = null;
-  function resize() {
+  const qualityListeners = new Set();
+
+  function viewSize() {
     let w = window.innerWidth;
     let h = window.innerHeight;
     if (aspectOverride) {
       if (w / h > aspectOverride) w = Math.round(h * aspectOverride);
       else h = Math.round(w / aspectOverride);
     }
+    return { w, h };
+  }
+
+  function buildComposer() {
+    composer?.dispose();
+    const settings = TIERS[tier];
+    const { w, h } = viewSize();
+    const pr = Math.min(window.devicePixelRatio || 1, settings.pixelRatio);
+    renderer.setPixelRatio(pr);
+    renderer.setSize(w, h);
+
+    // MSAA: çizgilerin tırtıklı görünmesini engelleyen asıl ayar
+    const target = new THREE.WebGLRenderTarget(Math.round(w * pr), Math.round(h * pr), {
+      type: THREE.HalfFloatType,
+      samples: settings.msaa,
+    });
+    composer = new EffectComposer(renderer, target);
+    composer.setPixelRatio(pr);
+    composer.setSize(w, h);
+    composer.addPass(new RenderPass(scene, camera));
+
+    bloom = null;
+    if (settings.bloom) {
+      bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.55, 0.4, 0.62);
+      // Bloom'u düşük çözünürlükte hesapla (iç hesap genişliğin yarısını kullanır)
+      const scale = settings.bloomScale * 2;
+      const baseSetSize = bloom.setSize.bind(bloom);
+      bloom.setSize = (bw, bh) => baseSetSize(Math.max(64, bw * scale), Math.max(64, bh * scale));
+      bloom.setSize(w * pr, h * pr);
+      composer.addPass(bloom);
+    }
+    composer.addPass(new OutputPass());
+
+    post = null;
+    if (settings.post) {
+      post = createPostPass();
+      post.uniforms.uResolution.value.set(w * pr, h * pr);
+      composer.addPass(post);
+    }
+
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
-    renderer.setSize(w, h);
-    composer.setSize(w, h);
   }
-  window.addEventListener('resize', resize);
 
-  function frame() {
-    const rawDt = clock.getDelta();
+  function setTier(next, { persist = true } = {}) {
+    if (!TIERS[next] || next === tier) return;
+    tier = next;
+    if (persist) saveTier(tier);
+    buildComposer();
+    monitor.reset();
+    for (const fn of qualityListeners) fn(tier, TIERS[tier]);
+  }
+
+  // Kareler sürekli yavaşsa bir alt seviyeye in (kaydetmeden: bir dahaki açılışta yine dene)
+  const monitor = createFrameMonitor(() => {
+    const i = TIER_ORDER.indexOf(tier);
+    if (i < TIER_ORDER.length - 1) setTier(TIER_ORDER[i + 1], { persist: false });
+  });
+
+  buildComposer();
+  window.addEventListener('resize', buildComposer);
+
+  const timer = new THREE.Timer();
+  timer.connect(document); // sekme gizlenince büyük zaman sıçramalarını engeller
+  const updaters = new Set();
+  let fps = 60;
+
+  function frame(timestamp) {
+    timer.update(timestamp);
+    const rawDt = timer.getDelta();
     const dt = Math.min(rawDt, 0.05);
-    watchPerformance(rawDt);
+    monitor.push(rawDt);
+    if (rawDt > 0) fps = THREE.MathUtils.lerp(fps, 1 / rawDt, 0.05);
     sharedTime.value += dt;
+    if (post) post.uniforms.uTime.value = sharedTime.value;
     for (const fn of updaters) fn(dt, sharedTime.value);
-    composer.render();
+    composer.render(dt);
     requestAnimationFrame(frame);
   }
 
@@ -84,8 +123,27 @@ export function createScene(canvas) {
     renderer,
     scene,
     camera,
-    bloom,
-    // Her karede çağrılacak fonksiyonları kaydet
+    get fps() {
+      return fps;
+    },
+    get tier() {
+      return tier;
+    },
+    tierSettings: () => TIERS[tier],
+    setTier,
+    // B tuşu: yüksek -> orta -> düşük -> yüksek
+    cycleTier() {
+      const i = TIER_ORDER.indexOf(tier);
+      setTier(TIER_ORDER[(i + 1) % TIER_ORDER.length]);
+      return TIERS[tier].label;
+    },
+    onQualityChange(fn) {
+      qualityListeners.add(fn);
+    },
+    // Kısa süreli görüntü bozulması (çöpe atma, ışınlanma anları için)
+    glitch(amount) {
+      if (post) post.uniforms.uGlitch.value = amount;
+    },
     onUpdate(fn) {
       updaters.add(fn);
       return () => updaters.delete(fn);
@@ -93,15 +151,10 @@ export function createScene(canvas) {
     start() {
       frame();
     },
-    setQuality,
-    isLowQuality: () => lowQuality,
-    onQualityChange(fn) {
-      qualityListeners.add(fn);
-    },
     // null = tam ekran; sayı = sabit en-boy oranı (ör. 9/16), canvas ortalanır
     setAspect(ratio) {
       aspectOverride = ratio;
-      resize();
+      buildComposer();
     },
   };
 }
