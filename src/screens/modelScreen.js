@@ -117,15 +117,16 @@ export function createModelScreen(app, { hud, handVisuals, sounds, env, onBackTo
       env.setEnergy(1);
       playTo(1, 1);
     },
-    rotate(dx, dy) {
+    // yawDelta: sürüklemeden gelen dönüş (radyan), dy: dikey sürükleme, twist: el çevirme (radyan)
+    rotate(yawDelta, dy, twist = 0) {
       spin.x = 0;
       spin.y = 0;
-      stage.rotation.y += dx * 5;
+      stage.rotation.y += yawDelta - twist;
       stage.rotation.x = THREE.MathUtils.clamp(stage.rotation.x + dy * 3, -0.7, 0.7);
     },
     // Bırakılan dönme: elin hızıyla savrulur, sürtünmeyle yavaşlar
-    rotateRelease(vx, vy) {
-      spin.y = THREE.MathUtils.clamp(vx * 5, -8, 8);
+    rotateRelease(vx, vy, twistVel = 0) {
+      spin.y = THREE.MathUtils.clamp(vx * 7 - twistVel, -14, 14);
       spin.x = THREE.MathUtils.clamp(vy * 3, -4, 4);
     },
     zoom(factor) {
@@ -444,7 +445,7 @@ export function createModelScreen(app, { hud, handVisuals, sounds, env, onBackTo
     if (spin.x || spin.y) {
       stage.rotation.y += spin.y * dt;
       stage.rotation.x = THREE.MathUtils.clamp(stage.rotation.x + spin.x * dt, -0.7, 0.7);
-      const decay = Math.exp(-2.2 * dt);
+      const decay = Math.exp(-1.6 * dt);
       spin.x *= decay;
       spin.y *= decay;
       if (Math.abs(spin.x) + Math.abs(spin.y) < 0.01) spin.x = spin.y = 0;

@@ -26,7 +26,12 @@ const POINT_DWELL = 0.45;
 const PINCH_RELEASE = 1.5; // parmaklar bu kadar (el boyu oranı) açılırsa sök/tak biter
 const FIST_GRAB_TIME = 0.35;
 
+const TWIST_GAIN = 1.6; // elin 1 derece dönüşü = modelin 1.6 derece dönüşü
+const DRAG_GAIN = 7; // ekran genişliği kadar sürükleme ≈ 400 derece
+
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+// İki açı arasındaki en kısa fark (-π..π)
+const angleDelta = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
 const toNdc = (p) => [p.x * 2 - 1, -(p.y * 2 - 1)];
 
 export function createModelGestures(ctx) {
@@ -73,8 +78,10 @@ export function createModelGestures(ctx) {
 
   function endRotate(h = null) {
     if (!rotate) return;
-    // Bırakırken el hareket ediyorsa model savrulup yavaşça durur
-    if (h && rotate.moved > 0.03) ctx.rotateRelease(h.velocity.x, h.velocity.y);
+    // Bırakırken el hareket ediyor ya da dönüyorsa model savrulup yavaşça durur
+    if (h && (rotate.moved > 0.03 || Math.abs(rotate.twistVel) > 1)) {
+      ctx.rotateRelease(h.velocity.x, h.velocity.y, rotate.twistVel * TWIST_GAIN);
+    }
     rotate = null;
   }
 
@@ -207,16 +214,27 @@ export function createModelGestures(ctx) {
           return;
         }
       }
-      // Sürükleme: döndür
-      if (!rotate) rotate = { last: { ...h.palm }, moved: 0 };
-      else {
+      // Sürükleme ve el çevirme: ikisi de anında döndürür. Sadece yeni kamera verisi gelince hesaplanır.
+      if (!rotate) {
+        rotate = { hand: h, t: time, last: { ...h.palm }, roll: h.rollValid ? h.roll : null, moved: 0, twistVel: 0, shown: false };
+      } else if (h !== rotate.hand) {
+        const sampleDt = Math.max(1e-3, time - rotate.t);
         const dx = h.palm.x - rotate.last.x;
         const dy = h.palm.y - rotate.last.y;
         rotate.moved += Math.hypot(dx, dy);
-        if (rotate.moved > 0.012) {
-          ctx.rotate(dx, dy);
-          if (rotate.moved - Math.hypot(dx, dy) <= 0.012) ctx.hud.showGesture('Döndür');
+        let twist = h.rollValid && rotate.roll !== null ? angleDelta(h.roll, rotate.roll) : 0;
+        if (Math.abs(twist) < 0.004) twist = 0; // titreme
+        rotate.twistVel = THREE.MathUtils.lerp(rotate.twistVel, twist / sampleDt, 0.6);
+        if (rotate.moved > 0.006 || twist) {
+          ctx.rotate(dx * DRAG_GAIN, dy, twist * TWIST_GAIN);
+          if (!rotate.shown && (rotate.moved > 0.03 || Math.abs(twist) > 0.05)) {
+            rotate.shown = true;
+            ctx.hud.showGesture('Döndür');
+          }
         }
+        rotate.hand = h;
+        rotate.t = time;
+        rotate.roll = h.rollValid ? h.roll : null;
         rotate.last = { ...h.palm };
       }
       return;

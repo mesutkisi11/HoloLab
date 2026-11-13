@@ -84,6 +84,12 @@ export function createHandState() {
       const pinch3 = pinchDist < 0.4 && middleDist < 0.45;
       slot.fist = slot.fist ? extended <= 1 : extended === 0 && pinchDist > 0.25;
       const isPointing = up[0] && !up[1] && !up[2];
+      // El dönüşü (topuz çevirir gibi): işaret kökü -> serçe kökü çizgisinin ekrandaki açısı.
+      // Avuç yana dönünce bu çizgi kısalır; o zaman açı güvenilmez sayılır.
+      const kx = pts[17].x - pts[5].x;
+      const ky = pts[17].y - pts[5].y;
+      const roll = Math.atan2(ky, kx);
+      const rollValid = Math.hypot(kx, ky) > unit * 0.35;
 
       // Zaman penceresi ile hız
       slot.history.push({ t, x: palm.x, y: palm.y, size });
@@ -105,6 +111,8 @@ export function createHandState() {
         pinchDist,
         pinch3,
         isPointing,
+        roll,
+        rollValid,
         pinchPoint: avg([pts[TIP.thumb], pts[TIP.index]]),
         indexTip: pts[TIP.index],
         velocity,

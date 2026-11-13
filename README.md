@@ -14,22 +14,32 @@ Everything runs in the browser. There is no server and nothing is uploaded anywh
 
 ## Features
 
-- Hologram look: dark scene, cyan translucent parts with fresnel edge glow, bloom, scanlines, a
-  rotating holo ring, and a faint wireframe "ghost" of the assembled model that always shows where
-  parts are going.
-- A single `progress` value (0 = fully disassembled, 1 = fully assembled) drives the whole
-  choreography, forwards and backwards, so hands can scrub it freely.
-- Seven motion types (`straight`, `arc`, `spiral`, `hinge`, `screw`, `slide`, `unfold`) with
-  anticipation, overshoot/settle, a flash and shake on seating, trails behind moving parts, cascade
-  timing and sub-assemblies (propeller onto motor, motor onto arm, arm onto body).
-- Two-hand tracking with MediaPipe HandLandmarker, One Euro filtering, glowing fingertip cursors,
-  a hand skeleton in the scene, targeting rings, and an energy arc while scrubbing.
-- Design gallery with hologram previews, drag-and-drop GLB/GLTF import stored in IndexedDB,
-  automatic choreography for imported models, JSON export/import of choreographies.
+- **Blueprint hologram look.** Faint glass surfaces with fresnel rims and a hex micro-pattern, crisp
+  technical-drawing edge lines, MSAA, tuned bloom, a cinematic final pass (chromatic aberration,
+  grain, vignette, interference band), and a faint wireframe "ghost" of the assembled model.
+- **A workshop around the model.** Projector dial with ruler ticks and a radar sweep, a light cone,
+  a blueprint floor grid, floating dust, gyroscope rings that orbit the model and a periodic scan
+  beam. Models materialize bottom-to-top when opened and dissolve when closed.
+- **Detailed procedural demos.** A foldable quadcopter (perforated carbon plates, hinge brackets,
+  lathe-turned motor bells, twisted airfoil propellers, threaded screws, 3-axis gimbal, bent landing
+  legs) and a 4-axis robot arm.
+- **One progress value drives everything.** `progress` (0 = disassembled, 1 = assembled) can move
+  forwards and backwards freely, so hands can scrub it.
+- **Seven motion types** (`straight`, `arc`, `spiral`, `hinge`, `screw`, `slide`, `unfold`) with
+  anticipation, overshoot/settle, seat flash and shockwave, trails, dashed leader lines from every
+  detached part to its home, cascade timing and sub-assemblies.
+- **Low-latency hand tracking.** MediaPipe HandLandmarker runs in a Web Worker on the GPU, frames are
+  sent the moment the camera produces them (`requestVideoFrameCallback`), and a tuned One Euro filter
+  plus windowed velocity keep cursors steady without lag.
+- **Inspect a part.** Point at a detached part to fly the camera to it with dimension lines in mm.
+- **Upload your own designs:** GLB, GLTF (+ .bin/textures), OBJ, STL, FBX, and CAD files
+  **STEP / STP / IGES** read directly in the browser by OpenCascade (no conversion needed).
+  Several STL/OBJ files dropped together become one assembly, one part per file.
+- **Automatic choreography** for uploads, exportable to JSON, editable, and re-importable.
+- **Quality tiers** (high / medium / low) detected from the GPU, with automatic step-down when
+  frames get slow. Telemetry in the corner shows FPS, tier and hand-tracking latency.
 - Throw-to-trash deletion with a 5-second undo ring; demo models cannot be deleted.
-- Procedural Web Audio sounds (hum, click, screw ticks, whoosh, scatter), toggleable.
-- Cinematic demo mode (hidden UI, orbiting camera, disassemble → assemble loop, 16:9 or 9:16).
-- Mouse/touch fallback when no camera is available.
+- Procedural Web Audio sounds, a cinematic demo mode (16:9 or 9:16) and a mouse/touch fallback.
 
 ## Running it
 
@@ -60,9 +70,10 @@ The one rule everywhere: **closing your palm means "grab / select"**.
 | Gesture | Effect |
 | --- | --- |
 | Open hand, move left / right | Browse designs (slow = drag, fast flick = skip several) |
-| Close your palm briefly (< 0.4 s) | Open the selected design |
+| Close your palm briefly (< 0.35 s) | Open the selected design |
 | Close your palm and hold, fling toward the bin | Delete the design |
 | Open hand, pull toward yourself (within 5 s) | Undo the delete |
+| Select the **+** slot at the end of the arc and click it | Add a design (file picker) |
 
 ### Model screen
 
@@ -71,8 +82,8 @@ The one rule everywhere: **closing your palm means "grab / select"**.
 | Thumb + index together, then open / close | Disassemble / assemble one layer (group) at a time |
 | Thumb + index + middle together, then open / close | Disassemble / assemble the whole model |
 | Pinch on a part and pull | Pull the part out along its attach axis; release near home to snap it back, far away to leave it in the exploded position, flick to throw it |
-| Index finger only, hold on a detached part (0.6 s) | Focus on that part (camera moves in, others fade) |
-| Open hand, slow drag | Rotate the model |
+| Index finger only, hold on a detached part (0.45 s) | Inspect that part: camera flies in, others fade, dimension lines in mm |
+| Open hand, drag (fling and release to keep it spinning) | Rotate the model |
 | Open hand, fast swipe left / right | Previous / next assembly step |
 | Open hand, fast swipe up | Back to the gallery |
 | Open palm pushed quickly toward the camera | Explode to the exploded view |
@@ -83,9 +94,9 @@ The one rule everywhere: **closing your palm means "grab / select"**.
 
 ### Keyboard / mouse fallback
 
-`Esc` gallery · `Enter` open · `← →` browse / step · `Space` play · `E` disassemble · `A` assemble ·
-`S` sound · `B` bloom on/off (performance mode) · `C` cinematic · `V` portrait/landscape · `J` download choreography JSON · `Del` delete ·
-`F` leave focus · `?` guide. Mouse: drag to rotate, wheel to zoom, drag a part to pull it out,
+`U` upload a design · `Esc` gallery · `Enter` open · `← →` browse / step · `Space` play ·
+`E` disassemble · `A` assemble · `S` sound · `B` cycle quality (high → medium → low) · `C` cinematic ·
+`V` portrait/landscape · `J` download choreography JSON · `Del` delete · `F` leave inspection · `?` guide. Mouse: drag to rotate, wheel to zoom, drag a part to pull it out,
 double-click a detached part to focus, bottom slider to scrub progress.
 
 ## Choreography JSON
@@ -158,6 +169,32 @@ outer parts next, small cylindrical parts (screws) last; the attach axis is the 
 to the part's outward direction. Press `J` on the model screen to download the generated JSON, edit
 it, then drop the file onto the page to attach it to that design.
 
+## Adding your own designs
+
+1. In the gallery, swipe to the **+** slot at the end of the arc and click it (or press `U`), or simply
+   drag files onto the window.
+2. Supported: `.glb`, `.gltf` (drop its `.bin` and textures together with it), `.obj`, `.stl`, `.fbx`,
+   `.step` / `.stp`, `.iges` / `.igs`.
+3. CAD files are parsed in a background thread by [occt-import-js](https://github.com/kovacsv/occt-import-js)
+   (OpenCascade compiled to WebAssembly, loaded from a CDN only when you first open a CAD file). The
+   result is cached in IndexedDB, so the next time the design opens instantly.
+4. Each body / mesh becomes a part. Very large assemblies are grouped by their top-level
+   sub-assemblies (at most 180 parts) to stay fluid.
+5. Press `J` on the model screen to download the generated choreography, edit it, and drop the JSON
+   back onto the page.
+
+Tip: hand gestures can select the **+** slot, but browsers only open a file picker from a real click
+or key press, so confirm with a click, `Enter` or `U`.
+
+## Performance
+
+- Hand detection runs in a Web Worker so the 3D scene never waits for it. Append `?mainthread` to the
+  URL to compare with the old main-thread mode.
+- The quality tier is chosen from the GPU name (software renderers → low, integrated GPUs → medium,
+  discrete GPUs → high) and drops automatically if the average frame takes longer than 24 ms.
+  `B` cycles tiers manually; the choice is remembered. `?tier=high|medium|low` forces one for a session.
+- Good, even lighting on your hands makes detection faster and steadier.
+
 ## Deleting designs
 
 Throwing a design into the bin removes it **only from HoloLab's library in your browser
@@ -173,9 +210,10 @@ Source: GitHub Actions**, and the site is served over HTTPS (required for camera
 
 The two demo models (foldable quadcopter, robot arm) are generated procedurally in
 `src/models/` and are released with this project under the MIT license. No third-party model files
-are bundled. MediaPipe hand tracking models are loaded at runtime from Google's CDN
-(Apache 2.0).
+are bundled. Loaded at runtime from CDNs, not bundled: MediaPipe Tasks Vision and the hand landmark
+model (Apache 2.0), occt-import-js / OpenCascade for STEP and IGES (LGPL-2.1). Fonts: Rajdhani and
+Share Tech Mono (SIL Open Font License) from Google Fonts.
 
 ## Stack
 
-Vite · Three.js · MediaPipe Tasks Vision (HandLandmarker) · IndexedDB · Web Audio API · plain JavaScript.
+Vite · Three.js · three-mesh-bvh · MediaPipe Tasks Vision (HandLandmarker, Web Worker) · occt-import-js · IndexedDB · Web Audio API · plain JavaScript.
