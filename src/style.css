@@ -528,6 +528,181 @@ body {
   box-shadow: 0 0 10px var(--cyan-dim);
 }
 
+.guide-tut,
+.tut-nav button {
+  font: 600 14px/1 var(--font);
+  letter-spacing: 0.12em;
+  color: var(--cyan);
+  background: rgba(95, 230, 255, 0.06);
+  border: 1px solid var(--cyan-dim);
+  padding: 9px 16px;
+  cursor: pointer;
+}
+.guide-tut {
+  display: block;
+  margin: 18px auto 0;
+  color: var(--orange);
+  border-color: var(--orange);
+}
+.guide-tut:hover,
+.tut-nav button:hover:not(:disabled) {
+  box-shadow: 0 0 12px var(--cyan-dim);
+}
+.tut-nav button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.tut-nav button.primary {
+  color: #e6fbff;
+  background: rgba(95, 230, 255, 0.16);
+}
+
+/* Uygulamalı eğitim */
+.tut {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(1, 4, 9, 0.9);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
+  z-index: 23;
+}
+.tut.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.tut-card {
+  width: min(980px, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  overflow: auto;
+  padding: 22px 28px 20px;
+  border: 1px solid var(--cyan-dim);
+  box-shadow: 0 0 30px rgba(95, 230, 255, 0.12), inset 0 0 40px rgba(95, 230, 255, 0.04);
+  background: rgba(2, 10, 18, 0.8);
+}
+.tut-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+.tut-count {
+  margin-left: auto;
+}
+.tut-x {
+  background: none;
+  border: none;
+  color: var(--cyan);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.tut-dots {
+  display: flex;
+  gap: 6px;
+  margin: 12px 0 10px;
+}
+.tut-dots i {
+  flex: 1;
+  height: 3px;
+  background: var(--cyan-faint);
+  cursor: pointer;
+}
+.tut-dots i.past {
+  background: var(--cyan-dim);
+}
+.tut-dots i.on {
+  background: var(--orange);
+  box-shadow: 0 0 8px var(--orange);
+}
+.tut-title {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  text-shadow: 0 0 14px var(--cyan-dim);
+  margin-bottom: 12px;
+}
+.tut-canvas {
+  display: block;
+  width: 100%;
+  height: clamp(200px, 34vw, 320px);
+}
+.tut.finished .tut-canvas,
+.tut.finished .tut-try,
+.tut.finished .tut-effect,
+.tut.finished .tut-dots,
+.tut.finished [data-a='list'] {
+  display: none;
+}
+.tut-how {
+  margin-top: 14px;
+  font-size: 19px;
+  font-weight: 600;
+  color: #e6fbff;
+}
+.tut-effect {
+  margin-top: 4px;
+  font-size: 15px;
+  opacity: 0.65;
+}
+.tut-try {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 16px;
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+}
+.tut-bar {
+  width: 160px;
+  height: 6px;
+  border: 1px solid var(--cyan-dim);
+  flex: none;
+}
+.tut-bar i {
+  display: block;
+  height: 100%;
+  background: var(--orange);
+  box-shadow: 0 0 8px var(--orange);
+  transform-origin: left;
+  transform: scaleX(0);
+  transition: transform 0.1s;
+}
+.tut-try.ok {
+  color: #7dffb0;
+}
+.tut-try.ok .tut-bar i {
+  background: #7dffb0;
+  box-shadow: 0 0 10px #7dffb0;
+}
+.tut-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 18px;
+}
+@media (max-width: 700px) {
+  .tut-card {
+    padding: 16px;
+  }
+  .tut-title {
+    font-size: 20px;
+  }
+  .tut-how {
+    font-size: 16px;
+  }
+}
+
 /* Sinematik mod: arayüz gizli */
 body.cinematic .brand,
 body.cinematic .hud-status,
@@ -554,4 +729,57 @@ body.cinematic .help-btn {
   .gallery-name {
     font-size: 16px;
   }
+}
+
+/* Açılış yükleme ekranı */
+.loading {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: var(--bg);
+  transition: opacity 0.6s;
+}
+.loading b {
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: 0.6em;
+  text-shadow: 0 0 16px var(--cyan-dim);
+}
+.loading span {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.3em;
+  opacity: 0.6;
+  animation: loading-blink 1.2s ease-in-out infinite;
+}
+.loading.done {
+  opacity: 0;
+  pointer-events: none;
+}
+@keyframes loading-blink {
+  50% { opacity: 0.2; }
+}
+
+.hud-notice {
+  position: fixed;
+  top: 58px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.25em;
+  opacity: 0;
+  transition: opacity 0.4s;
+  pointer-events: none;
+}
+.hud-notice.visible {
+  opacity: 0.6;
+}
+body.cinematic .hud-notice {
+  display: none;
 }

@@ -50,6 +50,45 @@ export function addMesh(
   return mesh;
 }
 
+// Kurulmuş modelin hızlı kopyası: geometri, kenar çizgileri ve BVH paylaşılır (yeniden hesaplanmaz),
+// her parçaya yeni malzeme verilir. Model her açılışta sıfırdan kurulmasın diye kullanılır.
+export function cloneModel(src) {
+  const saved = new Map();
+  src.traverse((o) => {
+    if (!o.userData.part) return;
+    saved.set(o, o.userData.part);
+    o.userData.part = null;
+  });
+  const copy = src.clone(true);
+  for (const [o, data] of saved) o.userData.part = data;
+
+  const from = [];
+  const to = [];
+  src.traverse((o) => from.push(o));
+  copy.traverse((o) => to.push(o));
+  from.forEach((o, i) => {
+    const target = to[i];
+    if (o.userData.isEdge) target.raycast = () => {};
+    const data = saved.get(o);
+    if (!data) return;
+    const material = createHologramMaterial();
+    const edgeMaterial = createEdgeMaterial();
+    target.userData.part = {
+      ...data,
+      home: { position: data.home.position.clone(), quaternion: data.home.quaternion.clone() },
+      material,
+      edgeMaterial,
+      highlight: 0,
+    };
+    for (const child of target.children) {
+      if (!child.isMesh) continue;
+      child.material = material;
+      for (const line of child.children) if (line.userData.isEdge) line.material = edgeMaterial;
+    }
+  });
+  return copy;
+}
+
 // Modeldeki tüm parçaları (Group'ları) listeler
 export function collectParts(root) {
   const parts = [];
@@ -61,16 +100,38 @@ export function collectParts(root) {
 
 // Bir modelin bütün parçalarının ortak kullandığı değerler: belirme yüksekliği ve genel saydamlık.
 // Tek bir nesneyi değiştirmek tüm parçaları günceller.
+// Yoğunluk: ışıklar üst üste toplandığı için çok parçalı modeller beyaza döner; çizgi ve yüzey
+// miktarına göre parlaklık kısılır (drone ölçüsündeki modeller olduğu gibi kalır).
 export function bindModelUniforms(root) {
-  const shared = { uReveal: { value: 1000 }, uModelOpacity: { value: 1 } };
+  const { surface, edges } = modelDensity(root);
+  const shared = {
+    uReveal: { value: 1000 },
+    uModelOpacity: { value: 1 },
+    uSurfaceDensity: { value: surface },
+    uEdgeDensity: { value: edges },
+  };
   for (const part of collectParts(root)) {
-    for (const mat of [part.userData.part.material, part.userData.part.edgeMaterial]) {
+    const { material, edgeMaterial } = part.userData.part;
+    for (const mat of [material, edgeMaterial]) {
       mat.uniforms.uReveal = shared.uReveal;
       mat.uniforms.uModelOpacity = shared.uModelOpacity;
     }
+    material.uniforms.uDensity = shared.uSurfaceDensity;
+    edgeMaterial.uniforms.uDensity = shared.uEdgeDensity;
   }
   root.userData.uniforms = shared;
   return shared;
+}
+
+function modelDensity(root) {
+  let edgeVerts = 0;
+  let tris = 0;
+  root.traverse((x) => {
+    if (x.userData.isEdge) edgeVerts += x.geometry.attributes.position.count;
+    else if (x.isMesh) tris += (x.geometry.index?.count ?? x.geometry.attributes.position.count) / 3;
+  });
+  const fade = (ref, n, k) => THREE.MathUtils.clamp(Math.pow(ref / Math.max(n, 1), k), 0.2, 1);
+  return { surface: fade(60000, tris, 0.7), edges: fade(35000, edgeVerts, 1) };
 }
 
 // Parçanın vurgu rengi: 0 = cyan, 1 = turuncu/altın

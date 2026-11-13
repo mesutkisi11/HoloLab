@@ -1,7 +1,9 @@
 import * as THREE from 'three';
+import { createPinchTap } from './pinchTap.js';
 
 // Galeri ekranı el hareketleri:
 //   açık elle sağa/sola kaydır   -> tasarımlar arasında gez (yavaş = sürükle, hızlı = birkaç tane atla)
+//   başparmak+işaret çift dokunma -> seçili tasarımı aç
 //   kısa yumruk (< 0.35 sn)      -> seçili tasarımı aç
 //   yumruk tut (>= 0.35 sn)      -> tasarımı kavra (çöpe atmak için), açınca bırak
 //   açık elle kendine çek        -> geri al (silme sonrası 5 sn; trash modülü dinler)
@@ -13,14 +15,25 @@ export function createGalleryGestures(ctx) {
   let drag = null;
   let fist = null; // { t0, grabbing }
   const world = new THREE.Vector3();
+  const tap = createPinchTap();
 
   function update(hands, dt, time) {
     const h = hands[0];
     if (!h) {
       endDrag(0);
       endFist(time, null);
+      tap.reset();
       return;
     }
+
+    const tapped = fist ? null : tap.update(h, time);
+    if (tapped === 'double') {
+      endDrag(0);
+      ctx.hud.showGesture('Çift dokunma · aç');
+      ctx.openSelected();
+      return;
+    }
+    if (tapped === 'tap') ctx.hud.showGesture('Bir kez daha dokun → aç');
 
     // --- Yumruk: kısa = aç, uzun = kavra ---
     if (h.isFist) {

@@ -47,6 +47,7 @@ const surfaceFragment = /* glsl */ `
   uniform float uFlash;
   uniform float uOpacity;
   uniform float uModelOpacity;
+  uniform float uDensity;
   uniform float uTime;
   uniform float uWave;
   uniform float uScan;
@@ -98,7 +99,7 @@ const surfaceFragment = /* glsl */ `
     vec3 base = mix(uColor, uHighlightColor, uHighlight);
     float alpha = 0.018 + fresnel * 0.24 + hex * 0.055 + scan * 0.2 + wave * 0.3 + revealBand * 0.5;
     alpha += uHighlight * 0.05 + uFlash * 0.3;
-    alpha *= uOpacity * uModelOpacity * flick * depthFade;
+    alpha *= uOpacity * uModelOpacity * uDensity * flick * depthFade;
 
     vec3 rgb = base * (0.6 + fresnel * 0.8 + hex * 0.5 + uHighlight * 0.35 + uFlash * 1.4);
     rgb += mix(base, vec3(0.9, 1.0, 1.0), 0.5) * (scan * 0.9 + revealBand * 1.6 + wave * 0.9);
@@ -127,6 +128,7 @@ const lineFragment = /* glsl */ `
   uniform float uFlash;
   uniform float uOpacity;
   uniform float uModelOpacity;
+  uniform float uDensity;
   uniform float uIntensity;
   uniform float uTime;
   uniform float uWave;
@@ -150,7 +152,7 @@ const lineFragment = /* glsl */ `
 
     vec3 base = mix(uColor, uHighlightColor, uHighlight);
     float a = uIntensity + uHighlight * 0.3 + uFlash * 0.7 + scan * 0.8 + revealBand * 1.1 + wave * 0.6;
-    a *= uOpacity * uModelOpacity * depthFade * flick;
+    a *= uOpacity * uModelOpacity * uDensity * depthFade * flick;
     vec3 rgb = base * (1.0 + scan * 0.6 + revealBand * 0.8);
     gl_FragColor = vec4(rgb, a);
   }
@@ -170,6 +172,7 @@ function baseUniforms(color, highlightColor) {
     uFlash: { value: 0 },
     uOpacity: { value: 1 },
     uModelOpacity: { value: 1 },
+    uDensity: { value: 1 },
     uReveal: { value: 1000 },
     uSeed: { value: Math.random() },
     uTime: sharedTime,

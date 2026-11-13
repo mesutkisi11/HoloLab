@@ -84,6 +84,10 @@ export function createHandState() {
       const pinch3 = pinchDist < 0.4 && middleDist < 0.45;
       slot.fist = slot.fist ? extended <= 1 : extended === 0 && pinchDist > 0.25;
       const isPointing = up[0] && !up[1] && !up[2];
+      // Parmak uçları başparmak ucunda toplanmış mı (çiçek gibi kapalı el)
+      const tipGaps = [8, 12, 16, 20].map((i) => dist(pts[i], pts[TIP.thumb]) / unit);
+      const tipSpread = tipGaps.reduce((s, d) => s + d, 0) / 4;
+      const isBunched = tipSpread < 0.42 && Math.max(...tipGaps) < 0.6;
       // El dönüşü (topuz çevirir gibi): işaret kökü -> serçe kökü çizgisinin ekrandaki açısı.
       // Avuç yana dönünce bu çizgi kısalır; o zaman açı güvenilmez sayılır.
       const kx = pts[17].x - pts[5].x;
@@ -109,6 +113,10 @@ export function createHandState() {
         isFist: slot.fist,
         isPinching: slot.pinching && !slot.fist,
         pinchDist,
+        middleDist,
+        tipSpread,
+        isBunched,
+        fingersUp: up,
         pinch3,
         isPointing,
         roll,

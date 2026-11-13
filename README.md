@@ -61,15 +61,28 @@ npm run lint      # ESLint
 
 The camera requires a secure context: `localhost` or HTTPS.
 
+## Sample assemblies
+
+The gallery also shows four engineering assemblies from the
+[Khronos glTF sample models](https://github.com/KhronosGroup/glTF-Sample-Models) (GearboxAssy,
+2CylinderEngine, ReciprocatingSaw, Buggy; JT data converted by Okino Computer Graphics). They are
+downloaded from that repository at runtime and are **not** part of this repository or its MIT
+license.
+
 ## Hand gestures
 
 The one rule everywhere: **closing your palm means "grab / select"**.
+
+On first launch an interactive tutorial opens: for every gesture an animated hand shows the move,
+a second panel shows what it does, and a third panel draws your own tracked hand. Do the gesture
+and the tutorial moves on by itself. Reopen it any time with the **?** button (top right).
 
 ### Gallery screen
 
 | Gesture | Effect |
 | --- | --- |
 | Open hand, move left / right | Browse designs (slow = drag, fast flick = skip several) |
+| Tap thumb and index together twice, quickly | Open the selected design |
 | Close your palm briefly (< 0.35 s) | Open the selected design |
 | Close your palm and hold, fling toward the bin | Delete the design |
 | Open hand, pull toward yourself (within 5 s) | Undo the delete |
@@ -79,15 +92,16 @@ The one rule everywhere: **closing your palm means "grab / select"**.
 
 | Gesture | Effect |
 | --- | --- |
-| Thumb + index together, then open / close | Disassemble / assemble one layer (group) at a time |
-| Thumb + index + middle together, then open / close | Disassemble / assemble the whole model |
+| Touch both thumbs together, then move hands apart / together | Thumbs touching = assembled; the further apart, the more it comes apart |
+| Snap your fingers | Step back one assembly step; at the first step, back to the gallery |
 | Pinch on a part and pull | Pull the part out along its attach axis; release near home to snap it back, far away to leave it in the exploded position, flick to throw it |
 | Index finger only, hold on a detached part (0.45 s) | Inspect that part: camera flies in, others fade, dimension lines in mm |
 | Open hand, drag (fling and release to keep it spinning) | Rotate the model |
 | Open hand, fast swipe left / right | Previous / next assembly step |
 | Open hand, fast swipe up | Back to the gallery |
 | Open palm pushed quickly toward the camera | Explode to the exploded view |
-| Two hands pinching, move apart / together | Zoom |
+| Two hands pinching, move apart / together | Zoom in / out |
+| Bunch all five fingertips together, then open the hand (bunch again to reverse) | Zoom in (zoom out) |
 | Two fists brought together | Full assembly with the complete choreography |
 | One fist held still in empty space + other hand | Slow motion modifier |
 | Fist held on the model, fling toward the bin | Delete (demo models bounce back) |
@@ -96,7 +110,7 @@ The one rule everywhere: **closing your palm means "grab / select"**.
 
 `U` upload a design · `Esc` gallery · `Enter` open · `← →` browse / step · `Space` play ·
 `E` disassemble · `A` assemble · `S` sound · `B` cycle quality (high → medium → low) · `C` cinematic ·
-`V` portrait/landscape · `J` download choreography JSON · `Del` delete · `F` leave inspection · `?` guide. Mouse: drag to rotate, wheel to zoom, drag a part to pull it out,
+`V` portrait/landscape · `J` download choreography JSON · `Del` delete · `F` leave inspection · `?` gesture list. Mouse: drag to rotate, wheel to zoom, drag a part to pull it out,
 double-click a detached part to focus, bottom slider to scrub progress.
 
 ## Choreography JSON

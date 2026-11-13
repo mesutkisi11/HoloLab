@@ -25,6 +25,10 @@ export function createHud() {
   telemetry.className = 'hud-telemetry';
   document.body.appendChild(telemetry);
 
+  const notice = document.createElement('div');
+  notice.className = 'hud-notice';
+  document.body.appendChild(notice);
+
   let hideTimer = null;
   let lastTelemetry = '';
 
@@ -32,6 +36,11 @@ export function createHud() {
     setStatus(text) {
       status.textContent = text;
       status.classList.toggle('visible', !!text);
+    },
+    // Arka planda süren iş (örnek montaj indirme): bitince boş metinle kapanır
+    setNotice(text) {
+      notice.textContent = text;
+      notice.classList.toggle('visible', !!text);
     },
     showGesture(name) {
       if (gesture.textContent === name && gesture.classList.contains('visible')) {

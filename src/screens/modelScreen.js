@@ -89,12 +89,15 @@ export function createModelScreen(app, { hud, handVisuals, sounds, env, onBackTo
     playDelay = delay;
   }
 
+  // Arka arkaya çağrılınca oynayan hedeften devam eder. Gidecek adım yoksa false döner.
   function stepBy(dir) {
-    if (!current) return;
-    const p = current.choreo.getProgress();
+    if (!current) return false;
+    const p = playTarget ?? current.choreo.getProgress();
     const points = current.choreo.seatPoints();
     const next = dir > 0 ? points.find((x) => x > p + 0.002) : [...points].reverse().find((x) => x < p - 0.002);
-    if (next !== undefined) playTo(next, 1);
+    if (next === undefined) return false;
+    playTo(next, 1);
+    return true;
   }
 
   const gestureCtx = {

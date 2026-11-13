@@ -15,6 +15,7 @@ import { createDropZone } from './gallery/dropZone.js';
 import { createTrashBin } from './trash/trashBin.js';
 import { createSounds } from './audio/sounds.js';
 import { createGuide } from './ui/guide.js';
+import { createTutorial } from './ui/tutorial.js';
 import { createCinematic } from './ui/cinematic.js';
 
 // Büyük yüklenen modellerde ışın testini hızlandır (BVH varsa kullanır, yoksa normal yöntem)
@@ -27,7 +28,8 @@ app.canvas = canvas;
 const env = createEnvironment(app.scene, app.tierSettings());
 const hud = createHud();
 const sounds = createSounds();
-const guide = createGuide();
+const guide = createGuide({ onTutorial: () => tutorial.show() });
+const tutorial = createTutorial({ sounds, openGuide: () => guide.show() });
 const handVisuals = createHandVisuals(app.scene, app.camera);
 const registry = createDesignRegistry();
 
@@ -176,9 +178,23 @@ async function backToGallery() {
 const cinematic = createCinematic(app, modelScreen);
 
 // --- Başlangıç ---
+// Ağır işler (model indirme, kenar çizgileri, BVH) yükleme ekranının arkasında biter; sonra donma olmaz
+const loading = document.createElement('div');
+loading.className = 'loading';
+loading.innerHTML = '<b>HOLOLAB</b><span>Tasarımlar hazırlanıyor…</span>';
+document.body.appendChild(loading);
 (async () => {
   await registry.refresh();
   await gallery.rebuild();
+  app.renderer.compile(app.scene, app.camera);
+  loading.classList.add('done');
+  setTimeout(() => loading.remove(), 700);
+  hud.setNotice('Örnek montajlar yükleniyor…');
+  registry.prepareLibrary(async (done, total) => {
+    hud.setNotice(done < total ? `Örnek montajlar yükleniyor ${done}/${total}` : '');
+    await registry.refresh();
+    await gallery.rebuild(gallery.selected()?.design?.id ?? null);
+  });
   // Test için: ?model=N doğrudan N. tasarımı açar
   const direct = new URLSearchParams(location.search).get('model');
   if (direct !== null && registry.list[Number(direct)]) openDesign(registry.list[Number(direct)]);
@@ -255,6 +271,8 @@ function updateHands(dt, time) {
   } else if (time - lastSeen > 2) {
     hud.setStatus('Elini kameraya göster');
   }
+  // Eğitim açıkken hareketler sadece eğitimde denenir
+  if (tutorial.isVisible()) return tutorial.onHands(hands, time);
   // Geri al: silme sonrası 5 sn içinde açık eli kendine doğru çek (el kameradan uzaklaşır, görüntüde küçülür)
   const h = hands[0];
   if (trash.hasPendingUndo() && h?.isOpen && h.sizeVelocity / Math.max(h.size, 1e-3) < -1.0) {
